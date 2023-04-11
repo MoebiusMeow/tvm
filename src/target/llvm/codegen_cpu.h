@@ -24,6 +24,8 @@
 #ifndef TVM_TARGET_LLVM_CODEGEN_CPU_H_
 #define TVM_TARGET_LLVM_CODEGEN_CPU_H_
 
+#ifdef TVM_LLVM_VERSION
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -54,14 +56,16 @@ class Module;
 namespace tvm {
 namespace codegen {
 
+class LLVMTarget;
+
 // CPU host code generation
 class CodeGenCPU : public CodeGenLLVM {
  public:
   CodeGenCPU();
   virtual ~CodeGenCPU();
 
-  void Init(const std::string& module_name, llvm::TargetMachine* tm, llvm::LLVMContext* ctx,
-            bool system_lib, bool dynamic_lookup, bool target_c_runtime) override;
+  void Init(const std::string& module_name, LLVMTarget* llvm_target, bool system_lib,
+            bool dynamic_lookup, bool target_c_runtime) override;
   void AddFunction(const PrimFunc& f) override;
   void AddMainFunction(const std::string& entry_func_name) override;
   std::unique_ptr<llvm::Module> Finish() override;
@@ -160,6 +164,7 @@ class CodeGenCPU : public CodeGenLLVM {
   // if not directly finalize function and pass on return code.
   // return the end block after the check
   llvm::BasicBlock* CheckCallSuccess(llvm::Value* retcode);
+  llvm::DISubprogram* CreateDebugFunction(const PrimFunc& f);
   // Context for injection lookup
   llvm::GlobalVariable* gv_mod_ctx_{nullptr};
   llvm::GlobalVariable* gv_tvm_func_call_{nullptr};
@@ -190,6 +195,7 @@ class CodeGenCPU : public CodeGenLLVM {
 
   // Get the DWARF type corresponding to the LLVM type |ty|. The current API in practice only
   // generates |int32|, and |int8*|.
+  llvm::DIType* GetDebugType(const Type& ty_tir);
   llvm::DIType* GetDebugType(const Type& ty_tir, llvm::Type* ty_llvm);
   // Adds the DWARF debug information for |function| to |dbg_info_|.
   void AddDebugInformation(PrimFunc f_tir, llvm::Function* f_llvm);
@@ -197,4 +203,6 @@ class CodeGenCPU : public CodeGenLLVM {
 
 }  // namespace codegen
 }  // namespace tvm
+
+#endif  // TVM_LLVM_VERSION
 #endif  // TVM_TARGET_LLVM_CODEGEN_CPU_H_

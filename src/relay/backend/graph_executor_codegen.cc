@@ -466,7 +466,7 @@ class GraphExecutorCodegen : public backend::MemoizedExprTranslator<std::vector<
     }
 
     // Compute the operator name, because we used the get unique name when generating the kernel.
-    auto op_name = _GetUniqueName(func_name);
+    auto op_name = name_supply_->FreshName(func_name);
     auto node = GraphOpNode::make_node_ptr(op_name, GraphAttrs(), func_name, inputs, attrs);
     return AddNode(node, call);
   }
@@ -493,15 +493,12 @@ class GraphExecutorCodegen : public backend::MemoizedExprTranslator<std::vector<
 
   std::vector<GraphNodeRef> VisitExpr_(const OpNode* op) override {
     LOG(FATAL) << "All OpNodes should have been expanded";
-    return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const GlobalVarNode* op) override {
     LOG(FATAL) << "All GlobalVarNodes should be removed before graph executor's Codegen is called";
-    return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const IfNode* op) override {
     LOG(FATAL) << "Graph executor does not support control flow (found IfNode)";
-    return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const FunctionNode* op) override {
     ICHECK(op->GetAttr<String>(attr::kCompiler).defined())
@@ -510,23 +507,18 @@ class GraphExecutorCodegen : public backend::MemoizedExprTranslator<std::vector<
   }
   std::vector<GraphNodeRef> VisitExpr_(const RefCreateNode* op) override {
     LOG(FATAL) << "Graph executor does not support references (found RefCreateNode)";
-    return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const RefReadNode* op) override {
     LOG(FATAL) << "Graph executor does not support references (found RefReadNode)";
-    return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const RefWriteNode* op) override {
     LOG(FATAL) << "Graph executor does not support references (found RefWriteNode)";
-    return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const ConstructorNode* op) override {
     LOG(FATAL) << "Graph executor does not support ADTs (found ConstructorNode)";
-    return {};
   }
   std::vector<GraphNodeRef> VisitExpr_(const MatchNode* op) override {
     LOG(FATAL) << "Graph executor does not support matching (found MatchNode)";
-    return {};
   }
   /*!
    * \brief Generate Graph JSON
@@ -604,22 +596,6 @@ class GraphExecutorCodegen : public backend::MemoizedExprTranslator<std::vector<
     writer->EndObject();
   }
 
-  /*!
-   * \brief Get unique name for func
-   *
-   * \param name
-   * \return std::string
-   */
-  std::string _GetUniqueName(const std::string& name) {
-    if (!name_map_.count(name)) {
-      name_map_[name] = 1;
-      return name;
-    }
-    auto index = name_map_[name];
-    name_map_[name] += 1;
-    return _GetUniqueName(name + std::to_string(index));
-  }
-
  protected:
   /*! \brief nodes */
   std::vector<GraphObjectPtr> nodes_;
@@ -645,8 +621,8 @@ class GraphExecutorCodegen : public backend::MemoizedExprTranslator<std::vector<
   String mod_name_;
   /*! \brief function metadata */
   Map<String, FunctionInfo> function_metadata_;
-  /*! \brief name map */
-  std::unordered_map<std::string, size_t> name_map_;
+  /*! \brief NameSupply */
+  NameSupply name_supply_ = NameSupply("");
 };
 
 class GraphExecutorCodegenModule : public runtime::ModuleNode {
@@ -710,6 +686,9 @@ class GraphExecutorCodegenModule : public runtime::ModuleNode {
   }
 
   const char* type_key() const final { return "RelayGraphExecutorCodegenModule"; }
+
+  /*! \brief Get the property of the runtime module .*/
+  int GetPropertyMask() const final { return runtime::ModulePropertyMask::kRunnable; }
 
  private:
   std::shared_ptr<GraphExecutorCodegen> codegen_;

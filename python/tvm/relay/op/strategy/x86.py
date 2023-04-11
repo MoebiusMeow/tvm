@@ -23,9 +23,7 @@ from tvm import tir, topi
 from tvm.auto_scheduler import is_auto_scheduler_enabled
 from tvm.meta_schedule import is_meta_schedule_enabled
 from tvm.relay.ty import is_dynamic
-from tvm.target import Target
 from tvm.te import SpecializedCondition
-from tvm.topi.x86.utils import target_has_vnni
 
 from .. import op as _op
 from .generic import *
@@ -228,13 +226,12 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
             assert _OIHWio_matcher.match(kernel_layout)  # check if kernel is OIHWio
             return depthwise_conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target)
         elif layout == "NHWC":
-            assert kernel_layout == "HWOI"
             if (not need_auto_scheduler_layout) and (not need_meta_schedule_layout):
                 logger.warning(
                     "depthwise_conv2d NHWC layout is not optimized for x86 with autotvm."
                 )
             strategy.add_implementation(
-                wrap_compute_conv2d(topi.nn.depthwise_conv2d_nhwc),
+                wrap_compute_conv2d(topi.nn.depthwise_conv2d_nhwc, need_kernel_layout=True),
                 wrap_topi_schedule(topi.generic.schedule_depthwise_conv2d_nhwc),
                 name="depthwise_conv2d_nhwc.generic",
             )
@@ -257,6 +254,9 @@ def conv2d_strategy_cpu(attrs, inputs, out_type, target):
                 wrap_topi_schedule(topi.generic.schedule_group_conv2d_nhwc),
                 name="group_conv2d_nhwc.generic",
             )
+        elif _NCHWc_matcher.match(layout):  # check if layout is NCHWxc
+            assert _OIHWio_matcher.match(kernel_layout)  # check if kernel is OIHWio
+            return conv2d_NCHWc_strategy_cpu(attrs, inputs, out_type, target)
         else:
             raise RuntimeError("Unsupported group_conv2d layout {}".format(layout))
     return strategy
@@ -510,7 +510,25 @@ def matmul_strategy_cpu(attrs, inputs, out_type, target):
 @dense_strategy.register("cpu")
 def dense_strategy_cpu(attrs, inputs, out_type, target):
     """dense x86 strategy"""
+
     strategy = _op.OpStrategy()
+    # For dynamic matrix-vector multiply we use a hand written kernel.
+    if (
+        isinstance(inputs[0].shape[0], (int, tir.IntImm))
+        and inputs[0].shape[0] == 1
+        and (
+            topi.utils.is_dynamic_shape(inputs[0].shape)
+            or topi.utils.is_dynamic_shape(inputs[1].shape)
+        )
+    ):
+        strategy.add_implementation(
+            wrap_compute_dense(topi.x86.dense_dynamic),
+            wrap_topi_schedule(topi.x86.schedule_dense_dynamic),
+            name="dense_dynamic.x86",
+            plevel=20,
+        )
+        return strategy
+
     same_type = inputs[0].dtype == inputs[1].dtype == out_type.dtype
     dtype = inputs[0].dtype
     u8s8s32 = dtype == "uint8" and inputs[1].dtype == "int8" and out_type.dtype == "int32"
@@ -574,7 +592,6 @@ def dense_strategy_cpu(attrs, inputs, out_type, target):
 def dense_pack_strategy_cpu(attrs, inputs, out_type, target):
     """dense_pack x86 strategy"""
     strategy = _op.OpStrategy()
-
     if (
         inputs[0].dtype == "uint8"
         and inputs[1].dtype == "int8"
@@ -582,10 +599,10 @@ def dense_pack_strategy_cpu(attrs, inputs, out_type, target):
         and attrs["weight_layout"] == "NC16n4c"
     ):
         strategy.add_implementation(
-            wrap_compute_dense(topi.x86.dense_vnni),
-            wrap_topi_schedule(topi.x86.schedule_dense_vnni),
-            name="dense_vnni.x86",
-            plevel=12,
+            wrap_compute_dense(topi.x86.dense_int8),
+            wrap_topi_schedule(topi.x86.schedule_dense_int8),
+            name="dense_int8.x86",
+            plevel=13,
         )
     else:
         strategy.add_implementation(
@@ -602,7 +619,6 @@ def dense_pack_strategy_cpu(attrs, inputs, out_type, target):
 def batch_matmul_strategy_cpu(attrs, inputs, out_type, target):
     """batch_matmul x86 strategy"""
     strategy = _op.OpStrategy()
-    mcpu = Target.current().mcpu
 
     need_auto_scheduler_layout = is_auto_scheduler_enabled()
     need_meta_schedule_layout = is_meta_schedule_enabled()
@@ -610,16 +626,15 @@ def batch_matmul_strategy_cpu(attrs, inputs, out_type, target):
     if (
         not attrs.transpose_a
         and attrs.transpose_b
-        and target_has_vnni(mcpu)
         and inputs[0].dtype == "uint8"
         and inputs[1].dtype == "int8"
         and inputs[1].shape[-2] % 16 == 0
         and inputs[1].shape[-1] % 4 == 0
     ):
         strategy.add_implementation(
-            wrap_compute_batch_matmul(topi.x86.batch_matmul_vnni_compute, need_out_dtype=True),
-            wrap_topi_schedule(topi.x86.schedule_batch_matmul_vnni),
-            name="batch_matmul_vnni.x86",
+            wrap_compute_batch_matmul(topi.x86.batch_matmul_int8_compute, need_out_dtype=True),
+            wrap_topi_schedule(topi.x86.schedule_batch_matmul_int8),
+            name="batch_matmul_int8.x86",
             plevel=10,
         )
     elif is_dynamic(out_type) or need_auto_scheduler_layout or need_meta_schedule_layout:
@@ -756,7 +771,7 @@ def scatter_nd_strategy_cpu(attrs, inputs, out_type, target):
     """scatter_nd x86 strategy"""
     strategy = _op.OpStrategy()
     strategy.add_implementation(
-        wrap_compute_scatter_nd(topi.x86.scatter_nd),
+        wrap_compute_scatter_nd(topi.scatter_nd),
         wrap_topi_schedule(topi.generic.schedule_extern),
         name="scatter_nd.x86",
         plevel=10,
@@ -764,16 +779,16 @@ def scatter_nd_strategy_cpu(attrs, inputs, out_type, target):
     return strategy
 
 
-@conv2d_winograd_without_weight_transfrom_strategy.register("cpu")
-def conv2d_winograd_without_weight_transfrom_strategy_cpu(attrs, inputs, out_type, target):
-    """conv2d_winograd_without_weight_transfrom cpu strategy"""
+@conv2d_winograd_without_weight_transform_strategy.register("cpu")
+def conv2d_winograd_without_weight_transform_strategy_cpu(attrs, inputs, out_type, target):
+    """conv2d_winograd_without_weight_transform cpu strategy"""
     dilation = attrs.get_int_tuple("dilation")
     groups = attrs.get_int("groups")
     layout = attrs.data_layout
     strides = attrs.get_int_tuple("strides")
     assert dilation == (1, 1), "Do not support dilate now"
     assert strides == (1, 1), "Do not support strides now"
-    assert groups == 1, "Do not supoort arbitrary group number"
+    assert groups == 1, "Do not support arbitrary group number"
     strategy = _op.OpStrategy()
     need_auto_scheduler_layout = is_auto_scheduler_enabled()
     need_meta_schedule_layout = is_meta_schedule_enabled()
@@ -802,7 +817,7 @@ def conv2d_winograd_without_weight_transfrom_strategy_cpu(attrs, inputs, out_typ
             raise RuntimeError("Both AutoScheduler and MetaSchedule are not enabled")
     else:
         raise RuntimeError(
-            "Unsupported conv2d_winograd_without_weight_transfrom layout {}".format(layout)
+            "Unsupported conv2d_winograd_without_weight_transform layout {}".format(layout)
         )
     return strategy
 
@@ -835,4 +850,16 @@ def concatenate_strategy_cpu(attrs, inputs, out_type, target):
             wrap_topi_schedule(topi.x86.injective.schedule_concatenate),
             name="concatenate.generic",
         )
+    return strategy
+
+
+@batch_norm_strategy.register(["cpu"])
+def batch_norm_strategy_cpu(attrs, inputs, out_type, target):
+    """batch_norm x86 strategy"""
+    strategy = _op.OpStrategy()
+    strategy.add_implementation(
+        wrap_compute_batch_norm(topi.nn.batch_norm),
+        wrap_topi_schedule(topi.x86.schedule_batch_norm),
+        name="batch_norm.cpu",
+    )
     return strategy

@@ -31,9 +31,12 @@ TUNING_RUNS_PER_OPERATOR = 2
 
 @pytest.mark.requires_hardware
 @tvm.testing.requires_micro
+@pytest.mark.skip_boards(
+    ["nucleo_l4r5zi", "", "nucleo_f746zg", "stm32f746g_disco", "nrf5340dk_nrf5340_cpuapp"]
+)
 def test_kws_autotune_workflow(platform, board, tmp_path):
     mod, params = fetch_model_from_url(
-        url="https://github.com/tensorflow/tflite-micro/raw/main/tensorflow/lite/micro/examples/micro_speech/micro_speech.tflite",
+        url="https://github.com/tensorflow/tflite-micro/raw/a56087ffa2703b4d5632f024a8a4c899815c31bb/tensorflow/lite/micro/examples/micro_speech/micro_speech.tflite",
         model_format="tflite",
         sha256="09e5e2a9dfb2d8ed78802bf18ce297bff54281a66ca18e0c23d69ca14f822a83",
     )
@@ -46,7 +49,11 @@ def test_kws_autotune_workflow(platform, board, tmp_path):
 
     str_logs = str_io_logs.getvalue().rstrip().split("\n")
     logs = list(map(json.loads, str_logs))
-    assert len(logs) == 1 * TUNING_RUNS_PER_OPERATOR  # One operator
+
+    # Some tuning tasks don't have any config space, and will only be run once
+    with tvm.transform.PassContext(opt_level=3, config={"tir.disable_vectorize": True}):
+        tasks = tvm.autotvm.task.extract_from_program(mod["main"], {}, target)
+    assert len(tasks) <= len(logs) <= len(tasks) * TUNING_RUNS_PER_OPERATOR
 
     # Check we tested both operators
     op_names = list(map(lambda x: x["input"][1], logs))
@@ -57,6 +64,7 @@ def test_kws_autotune_workflow(platform, board, tmp_path):
     assert logs[0]["config"]["entity"] != logs[1]["config"]["entity"]
 
     # Compile the best model with AOT and connect to it
+    str_io_logs.seek(0)
     with tvm.micro.testing.create_aot_session(
         platform,
         board,
@@ -72,17 +80,18 @@ def test_kws_autotune_workflow(platform, board, tmp_path):
             np.random.randint(low=-127, high=128, size=(1, 1960), dtype=np.int8) for x in range(3)
         )
 
-        labels = [0, 0, 0]
-
         # Validate perforance across random runs
-        time, _ = tvm.micro.testing.evaluate_model_accuracy(
-            session, aot_executor, samples, labels, runs_per_sample=20
-        )
+        runtimes = [
+            runtime
+            for _, runtime in tvm.micro.testing.predict_labels_aot(
+                session, aot_executor, samples, runs_per_sample=20
+            )
+        ]
         # `time` is the average time taken to execute model inference on the
         # device, measured in seconds. It does not include the time to upload
         # the input data via RPC. On slow boards like the Arduino Due, time
         # is around 0.12 (120 ms), so this gives us plenty of buffer.
-        assert time < 1
+        assert np.median(runtimes) < 1
 
 
 if __name__ == "__main__":

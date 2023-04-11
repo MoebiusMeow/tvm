@@ -168,11 +168,56 @@ Docker Images
 ^^^^^^^^^^^^^
 
 Each CI job runs most of its work inside a Docker container, built from files
-in the `docker/ <https://github.com/apache/tvm/tree/main/docker>`_ folder. These
-files are built nightly in Jenkins via the `docker-images-ci <https://ci.tlcpack.ai/job/docker-images-ci/>`_ job.
-The images for these containers are hosted in the `tlcpack Docker Hub <https://hub.docker.com/u/tlcpack>`_
-and referenced in the `Jenkinsfile.j2 <https://github.com/apache/tvm/tree/main/Jenkinsfile.j2>`_. These can be inspected and run
-locally via standard Docker commands.
+in the `docker/ <https://github.com/apache/tvm/tree/main/docker>`_ folder.
+
+
+Updating a Docker Image Tag
+"""""""""""""""""""""""""""
+
+To update a tag, a new image needs to be built and uploaded to Docker Hub, then
+the image tags in  `docker-images.ini <https://github.com/apache/tvm/tree/main/ci/jenkins/docker-images.ini>`_
+need to be updated to match the image tags on Docker Hub.
+
+Docker images are built automatically nightly via the `docker-images-ci <https://ci.tlcpack.ai/job/docker-images-ci/>`_,
+which uploads the built images to https://hub.docker.com/u/tlcpackstaging once
+they have passed CI. Post-merge CI runs on ``main`` build Docker images ad-hoc
+and upload them to the ``tlcpackstaging`` Docker Hub account as well. There is an
+auto-promotion process for ``tlcpackstaging`` Docker images to be moved to the
+``tlcpack`` account. This means that image tags from ``tlcpackstaging`` can be
+used in CI and they will be automatically moved to ``tlcpack`` after a successful
+post-merge CI run on ``main``. So the steps to update the image are:
+
+1. Merge a PR that changes the Dockerfiles under ``docker/`` or scripts in ``docker/install``.
+2. Do either of:
+
+    a. Wait for the post-merge CI build from the PR to complete and upload the newly built image to the `tlcpackstaging <https://hub.docker.com/u/tlcpackstaging>`_ Docker Hub.
+    b. Wait for the nightly Docker image build to complete and upload the newly built image to the `tlcpackstaging <https://hub.docker.com/u/tlcpackstaging>`_ Docker Hub.
+
+3. Find the newly uploaded image tag on the `tlcpackstaging <https://hub.docker.com/u/tlcpackstaging>`_ Docker Hub, for example ``20221208-070144-22ff38dff`` and update the tag in ``ci/jenkins/docker-images.ini`` to use the tlcpackstaging tag but under the tlcpack account, e.g. ``tlcpack/ci-arm:20221208-070144-22ff38dff``. Send in a PR with these changes and wait for it to run through CI to ensure the new images are valid.
+4. Merge the ``docker-images.ini`` update PR. Once post-merge CI finishes running on ``main`` the ``tlcpackstaging`` tag will be re-uploaded to ``tlcpack`` automatically.
+
+Adding a New Docker Image
+"""""""""""""""""""""""""
+
+New docker images can be added to test TVM on a variety of platforms. Here are the steps for adding
+a new CI image:
+
+1.  Define the ``docker/Dockerfile.ci_foo`` and associated scripts in ``docker/install``. Create a PR containing only these changes (no ``Jenkinsfile`` changes).
+
+    Example: https://github.com/apache/tvm/pull/12230/files
+
+2. A committer verifies the image builds locally and then reviews/approves this PR.
+3. A committer creates the ci-foo repos in https://hub.docker.com/u/tlcpack and https://hub.docker.com/u/tlcpackstaging.
+4. Create a PR to create an ECR repo for the image in tlcpack/ci: https://github.com/tlc-pack/ci/pull/46/files
+5. A committer creates and gets merged a PR to add the image to the ``Jenkinsfile``
+
+    Example: https://github.com/apache/tvm/pull/12369/files.
+
+    **NOTE**: The PR must be opened from a branch in apache/tvm, not from a branch in a forked repo.
+
+6. A committer adds this image to the daily docker rebuild/validation run in tlcpack.
+
+    Example: https://github.com/tlc-pack/tlcpack/pull/131
 
 
 ``ci-docker-staging``

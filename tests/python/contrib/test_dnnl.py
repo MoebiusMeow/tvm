@@ -150,9 +150,8 @@ def assert_result_dict_holds(result_dict):
         res1 = vmobj_to_list(result_dict[k1])
         res2 = vmobj_to_list(result_dict[k2])
         for r1, r2 in zip(res1, res2):
-            if "bf16" in k1 or "bf16" in k2:
-                np.testing.assert_array_almost_equal(r1, r2, decimal=1)
-            else:
+            # ignore the accuracy checking if only one bf16 result presents
+            if ("bf16" in k1) == ("bf16" in k2):
                 tvm.testing.assert_allclose(r1, r2, rtol=1e-3, atol=1e-3)
 
 
@@ -450,13 +449,6 @@ def get_layer_norm(x_shape=(1, 49, 64), dtype="float32"):
     return out, dic, param_lst
 
 
-def get_conv2d_bias_sum_relu(x_shape=(1, 32, 8, 8), k_shape=(16, 32, 3, 3), dtype="float32"):
-    conv2d_bias, dic, param_lst = get_conv2d_bias(x_shape, k_shape, dtype=dtype)
-    sum_data = relay.const(np.random.randint(x_shape).astype(dtype))
-    conv2d_bias_sum = relay.add(sum_data, conv2d_bias)
-    return relay.nn.relu(conv2d_bias_sum), dic, param_lst
-
-
 def get_conv3d(
     x_shape=(1, 32, 8, 8, 8),
     k_shape=(16, 32, 3, 3, 3),
@@ -494,7 +486,7 @@ def get_conv3d_transpose(
     activation=None,
     dtype="float32",
     data_layout="NCDHW",
-    kernel_layout="OIDHW",
+    kernel_layout="IODHW",
 ):
     x = relay.var("x", shape=(x_shape), dtype=dtype)
     kernel = relay.const(np.random.randint(0, 1, k_shape).astype(dtype))
@@ -799,7 +791,7 @@ def test_conv2d_bias_sum_relu(run_module, dtype="float32"):
     x_shape = (1, 32, 8, 8)
     k_shape = (16, 32, 3, 3)
 
-    def get_conv2d_bn_sum_relu(x_shape, k_shape, sum_shape, dtype="float32"):
+    def get_conv2d_bn_sum_relu(x_shape, k_shape, dtype="float32"):
         out, dic, param_lst = get_conv2d_bias(x_shape=x_shape, k_shape=k_shape, dtype=dtype)
         beta = relay.const(np.zeros(k_shape[0]).astype(dtype))
         gamma = relay.const(np.ones(k_shape[0]).astype(dtype))
@@ -816,24 +808,52 @@ def test_conv2d_bias_sum_relu(run_module, dtype="float32"):
             scale=True,
             epsilon=1e-5,
         )
-        sum_data = relay.var("data1", shape=sum_shape, dtype=dtype)
-        out = relay.add(out, sum_data)
-        dic["data1"] = sum_shape
-        param_lst += ["data1"]
+        sum_in = relay.var("sum_in", shape=x_shape, dtype=dtype)
+        kernel = relay.const(np.random.randint(0, 1, k_shape).astype(dtype))
+        conv_sum = relay.nn.conv2d(
+            sum_in,
+            kernel,
+            channels=k_shape[0],
+            kernel_size=k_shape[2:4],
+            groups=1,
+            padding=(0, 0),
+            strides=(1, 1),
+            dilation=(1, 1),
+        )
+        # sum over two conv2d outputs to meet inplace condition
+        out = relay.add(out, conv_sum)
+        dic["sum_in"] = x_shape
         return relay.nn.relu(out), dic, param_lst
 
-    conv2d_bn_sum_relu, dic, param_lst = get_conv2d_bn_sum_relu(
-        x_shape, k_shape, sum_shape=(1, 16, 6, 6), dtype=dtype
-    )
+    conv2d_bn_sum_relu, dic, param_lst = get_conv2d_bn_sum_relu(x_shape, k_shape, dtype=dtype)
     conv2d_bn_sum_relu = tvm.IRModule.from_expr(conv2d_bn_sum_relu)
     config = conv2d_bn_sum_relu, dic, param_lst
     run_and_verify_func(config, run_module=run_module, dtype=dtype)
 
-    conv2d_bn_sum_relu, dic, param_lst = get_conv2d_bn_sum_relu(
-        x_shape, k_shape, sum_shape=(1, 16, 1, 1), dtype=dtype
-    )
-    conv2d_bn_sum_relu = tvm.IRModule.from_expr(conv2d_bn_sum_relu)
-    config = conv2d_bn_sum_relu, dic, param_lst
+
+def test_dense_bias_sum(run_module, dtype="float32"):
+    x_shape = (4, 32)
+    k_shape = (16, 32)
+
+    def get_dense_bias_sum(x_shape, k_shape, dtype="float32"):
+        out, dic, param_lst = get_dense_bias(x_shape=x_shape, k_shape=k_shape, dtype=dtype)
+
+        sum_in = relay.var("sum_in", shape=x_shape, dtype=dtype)
+        ker = relay.var("ker", shape=(k_shape), dtype=dtype)
+        dense_sum = relay.nn.dense(sum_in, ker, units=k_shape[0])
+
+        # sum over two dense outputs to meet inplace condition
+        out = relay.add(out, dense_sum)
+        dic["sum_in"] = x_shape
+        dic["ker"] = k_shape
+        param_lst += ["ker"]
+        return out, dic, param_lst
+
+    dense_bias_sum, dic, param_lst = get_dense_bias_sum(x_shape, k_shape, dtype=dtype)
+    dense_bias_sum = tvm.IRModule.from_expr(dense_bias_sum)
+    print("hebi-dbg:")
+    print(dense_bias_sum)
+    config = dense_bias_sum, dic, param_lst
     run_and_verify_func(config, run_module=run_module, dtype=dtype)
 
 

@@ -16,11 +16,22 @@
 # under the License.
 """Functions to print doc into text format"""
 
+from typing import List, Optional
+
+from tvm.runtime import ObjectPath
+from tvm.runtime.script_printer import PrinterConfig
+
 from . import _ffi_api
 from .doc import Doc
 
 
-def to_python_script(doc: Doc, indent_spaces: int = 4) -> str:
+def to_python_script(
+    doc: Doc,
+    indent_spaces: int = 4,
+    print_line_numbers: bool = False,
+    num_context_lines: Optional[int] = None,
+    path_to_underline: Optional[List[ObjectPath]] = None,
+) -> str:
     """Convert Doc into Python script.
 
     Parameters
@@ -29,10 +40,22 @@ def to_python_script(doc: Doc, indent_spaces: int = 4) -> str:
         The doc to convert into Python script
     indent_spaces : int
         The number of indent spaces to use in the output
+    print_line_numbers: bool
+        Whether to print line numbers
+    num_context_lines : Optional[int]
+        Number of context lines to print around the underlined text
+    path_to_underline : Optional[ObjectPath]
+        Object path to be underlined
 
     Returns
     -------
     script : str
         The text representation of Doc in Python syntax
     """
-    return _ffi_api.DocToPythonScript(doc, indent_spaces)  # type: ignore # pylint: disable=no-member
+    cfg = PrinterConfig(
+        indent_spaces=indent_spaces,
+        print_line_numbers=print_line_numbers,
+        num_context_lines=num_context_lines,
+        path_to_underline=path_to_underline,
+    )
+    return _ffi_api.DocToPythonScript(doc, cfg)  # type: ignore # pylint: disable=no-member

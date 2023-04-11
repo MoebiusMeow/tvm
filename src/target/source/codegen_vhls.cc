@@ -80,7 +80,7 @@ void CodeGenVivadoHLS::PrintType(DataType t, std::ostream& os) {
   }
 }
 
-void CodeGenVivadoHLS::PrintFuncPrefix() { stream << "extern \"C\" void"; }
+void CodeGenVivadoHLS::PrintFuncPrefix(std::ostream& os) { os << "extern \"C\" void"; }
 
 void CodeGenVivadoHLS::PreFunctionBody(const PrimFunc& f) {
   for (size_t i = 0; i < f->params.size(); ++i) {
@@ -157,7 +157,7 @@ runtime::Module BuildSDAccel(IRModule mod, Target target) {
   std::string whole_code = cg.Finish();
 
   // Generate source code for compilation.
-  Array<Array<runtime::String> > kernel_info;
+  Array<Array<runtime::String>> kernel_info;
 
   for (auto kv : mod->functions) {
     ICHECK(kv.second->IsInstance<PrimFuncNode>()) << "CodeGenOpenCL: Can only take PrimFunc";

@@ -193,17 +193,17 @@ class Module:
     def test_tir_fma(A: T.handle, B: T.handle, C: T.handle, d: T.handle) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "test_fma", "tir.noalias": True})
-        n = T.var("int32")
-        stride = T.var("int32")
-        stride_1 = T.var("int32")
-        stride_2 = T.var("int32")
-        stride_3 = T.var("int32")
+        n = T.int32()
+        stride = T.int32()
+        stride_1 = T.int32()
+        stride_2 = T.int32()
+        stride_3 = T.int32()
         A_1 = T.match_buffer(
             A,
             [n],
             strides=[stride],
             elem_offset=0,
-            align=128,
+            align=64,
             offset_factor=1,
             buffer_type="auto",
         )
@@ -212,7 +212,7 @@ class Module:
             [n],
             strides=[stride_1],
             elem_offset=0,
-            align=128,
+            align=64,
             offset_factor=1,
             buffer_type="auto",
         )
@@ -221,7 +221,7 @@ class Module:
             [n],
             strides=[stride_2],
             elem_offset=0,
-            align=128,
+            align=64,
             offset_factor=1,
             buffer_type="auto",
         )
@@ -230,7 +230,7 @@ class Module:
             [n],
             strides=[stride_3],
             elem_offset=0,
-            align=128,
+            align=64,
             offset_factor=1,
             buffer_type="auto",
         )

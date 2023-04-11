@@ -323,11 +323,7 @@ inline Tensor reshape(const Tensor& x, Array<PrimExpr> newshape, std::string nam
   Array<PrimExpr> target_shape;
 
   for (const auto& ele : newshape) {
-    if (ele.as<IntImmNode>()) {
-      target_shape.push_back(cast(DataType::Int(32), ele));
-    } else {
-      target_shape.push_back(ele);
-    }
+    target_shape.push_back(ele);
   }
 
   // If either the input shape or the target shape contains a zero, return an empty tensor.
@@ -396,7 +392,7 @@ inline Tensor unravel_index(const Tensor& x, const Tensor& shape, std::string na
  * The removed dimensions must have a constant size of 1.
  *
  * \param x The input tensor
- * \param axis Indices of the dimensions to remove. If this is empty,
+ * \param axis Indices of the dimensions to remove. If this is None,
  * all entries with a constant size of 1 will be removed.
  * \param atleast1d Whether the output need to be atleast1d.
  * \param name The name of the operation
@@ -408,7 +404,7 @@ inline Tensor squeeze(const Tensor& x, Array<Integer> axis, bool atleast1d = fal
                       std::string name = "T_squeeze", std::string tag = kInjective) {
   auto ndim = x->shape.size();
   std::vector<int> axis_val;
-  if (!axis.defined() || axis.size() == 0) {
+  if (!axis.defined()) {
     for (size_t i = 0; i < ndim; ++i) {
       if (IsConstInt(x->shape[i]) && GetConstInt(x->shape[i]) == 1) {
         axis_val.push_back(static_cast<int>(i));
@@ -592,7 +588,7 @@ inline Array<Tensor> split(const Tensor& x, Array<PrimExpr> split_indices, int a
     begin_ids.push_back(idx);
   }
 
-  Array<Array<PrimExpr> > out_shapes;
+  Array<Array<PrimExpr>> out_shapes;
   for (size_t i = 0; i < begin_ids.size(); ++i) {
     PrimExpr out_axis_size;
     if (i == begin_ids.size() - 1) {
@@ -641,7 +637,7 @@ inline Array<Tensor> split(const Tensor& x, Array<PrimExpr> split_indices, int a
  *
  * \param x The input tensor
  * \param begin The indices to begin with in the slicing
- * \param end Indicies indicating end of the slice
+ * \param end Indices indicating end of the slice
  * \param strides Specifies the stride values, it can be negative
  * in that case, the input tensor will be reversed in that particular axis
  * \param name The name of the operation
@@ -698,7 +694,7 @@ inline Tensor dynamic_strided_slice(const Tensor& x, const Array<PrimExpr>& begi
  *
  * \param x The input tensor
  * \param begin The indices to begin with in the slicing
- * \param end Indicies indicating end of the slice
+ * \param end Indices indicating end of the slice
  * \param strides Specifies the stride values, it can be negative
  * in that case, the input tensor will be reversed in that particular axis
  * \param name The name of the operation
@@ -710,16 +706,17 @@ inline te::Tensor dynamic_strided_slice(const te::Tensor& x, const te::Tensor& b
                                         const te::Tensor& end, const te::Tensor& strides,
                                         std::string name = "T_strided_slice_dynamic",
                                         std::string tag = topi::kInjective) {
+  DataType index_dtype = begin->shape[0]->dtype;
   const int64_t num_dynamic_axes = begin->shape[0].as<IntImmNode>()->value;
   ICHECK_EQ(end->shape[0].as<IntImmNode>()->value, num_dynamic_axes);
   ICHECK_EQ(strides->shape[0].as<IntImmNode>()->value, num_dynamic_axes);
 
   Array<PrimExpr> begin_expr, end_expr, strides_expr;
   for (int64_t i = 0; i < num_dynamic_axes; ++i) {
-    auto i64_ind = IntImm(DataType::Int(64), i);
-    begin_expr.push_back(begin(i64_ind));
-    end_expr.push_back(end(i64_ind));
-    strides_expr.push_back(strides(i64_ind));
+    auto ind = make_const(index_dtype, i);
+    begin_expr.push_back(begin(ind));
+    end_expr.push_back(end(ind));
+    strides_expr.push_back(strides(ind));
   }
   return dynamic_strided_slice(x, begin_expr, end_expr, strides_expr, name, tag);
 }
@@ -729,7 +726,7 @@ inline te::Tensor dynamic_strided_slice(const te::Tensor& x, const te::Tensor& b
  *
  * \param ishape The input tensor shape
  * \param begin The indices to begin with in the slicing
- * \param end Indicies indicating end of the slice
+ * \param end Indices indicating end of the slice
  * \param strides Specifies the stride values, it can be negative
  * in that case, the input tensor will be reversed in that particular axis
  * \param axes Axes along which slicing is applied. When it is specified, the length of begin, end,
@@ -755,7 +752,7 @@ inline Array<PrimExpr> StridedSliceOutputShape(
  *
  * \param x The input tensor
  * \param begin The indices to begin with in the slicing
- * \param end Indicies indicating end of the slice
+ * \param end Indices indicating end of the slice
  * \param strides Specifies the stride values, it can be negative
  * in that case, the input tensor will be reversed in that particular axis
  * \param axes Axes along which slicing is applied. When it is specified, the length of begin, end,
@@ -803,7 +800,7 @@ inline Tensor strided_slice_with_axes(const Tensor& x, const Array<Integer>& beg
  *
  * \param x The input tensor
  * \param begin The indices to begin with in the slicing
- * \param end Indicies indicating end of the slice
+ * \param end Indices indicating end of the slice
  * \param strides Specifies the stride values, it can be negative
  * in that case, the input tensor will be reversed in that particular axis
  * \param slice_mode Specifies the slice mode
@@ -822,9 +819,10 @@ inline Tensor strided_slice(const Tensor& x, const Array<Integer>& begin, const 
   Array<Integer> end_full(end);
   Array<Integer> strides_full(strides);
 
-  const IntImm one = IntImm(DataType::Int(64), 1);
-  const IntImm zero = IntImm(DataType::Int(64), 0);
-  const IntImm max_range = IntImm(DataType::Int(64), std::numeric_limits<int64_t>::max());
+  DataType index_dtype = begin.size() > 0 ? begin[0]->dtype : DataType::Int(64);
+  const IntImm one = IntImm(index_dtype, 1);
+  const IntImm zero = IntImm(index_dtype, 0);
+  const IntImm max_range = Downcast<IntImm>(max_value(index_dtype));
 
   for (size_t i = strides.size(); i < src_tensor_dim; ++i) {
     strides_full.push_back(one);
@@ -1590,10 +1588,12 @@ inline Array<Tensor> meshgrid(const Array<Tensor>& inputs, const std::string& in
  * \param dst_layout the destination layout.
  * \param name output tensor name.
  * \param tag output tensor tag.
+ * \param schedule_rule name of specialized schedule rule to use.
  * \return A tensor with shape in \p dst_layout
  */
 inline Tensor layout_transform(const Tensor& src, const std::string& src_layout,
                                const std::string& dst_layout,
+                               const std::string schedule_rule = "None",
                                const std::string name = "T_layout_trans",
                                const std::string tag = kInjective) {
   Layout src_layout_struct(src_layout);
@@ -1612,6 +1612,12 @@ inline Tensor layout_transform(const Tensor& src, const std::string& src_layout,
 
   Array<PrimExpr> dst_shape = layout_converter.ForwardShape(src->shape);
 
+  Map<String, ObjectRef> attrs = {{"schedule_rule", String(schedule_rule)},
+                                  // Information about layouts needed for the schedule rule
+                                  {"src_layout", String(src_layout)},
+                                  {"dst_layout", String(dst_layout)},
+                                  {"input_shape", src->shape}};
+
   return compute(
       dst_shape,
       [&](const Array<Var>& dst_indices) {
@@ -1623,7 +1629,7 @@ inline Tensor layout_transform(const Tensor& src, const std::string& src_layout,
         }
         return if_then_else(in_range, src(src_indices), tvm::cast(src->dtype, PrimExpr(0)));
       },
-      name, tag);
+      name, tag, attrs);
 }
 
 /*! \brief Utility function for auto_scheduler_layout_transform */

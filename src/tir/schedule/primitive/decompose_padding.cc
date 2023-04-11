@@ -114,6 +114,10 @@ class PaddingInfoAnalyzer {
 
     // Step 3. Analyze in-bound write region.
     PrimExpr in_bound_predicate = RewritePredicate(pad_predicate && realize->predicate);
+    if (analyzer_->CanProveEqual(in_bound_predicate, 1)) {
+      SetError("The in-bound predicate is trivial");
+      return false;
+    }
     Array<Range> in_bound_region = this->EstimateInBoundRegion(
         /*iter_values=*/realize->iter_values, /*dom_map=*/dom_map,
         /*in_bound_predicate=*/in_bound_predicate);
@@ -212,16 +216,15 @@ static std::pair<Stmt, BlockRealize> CreateConstBlock(const BlockRealizeNode* re
 
   // create new write region
   ICHECK_EQ(block->writes.size(), 1U);
-  BufferRegion write_region =
-      BufferRegion(block->writes[0]->buffer,
-                   MutateArray(block->writes[0]->region, [rewrite_expr](const Range& r) {
-                     return Range::FromMinExtent(rewrite_expr(r->min), rewrite_expr(r->extent));
-                   }));
+  BufferRegion write_region = BufferRegion(
+      block->writes[0]->buffer, block->writes[0]->region.Map([rewrite_expr](const Range& r) {
+        return Range::FromMinExtent(rewrite_expr(r->min), rewrite_expr(r->extent));
+      }));
 
   // create block to fill const pad values
   BufferStore store = Downcast<BufferStore>(block->body);
   store.CopyOnWrite()->value = info.pad_value;
-  store.CopyOnWrite()->indices = MutateArray(store->indices, rewrite_expr);
+  store.CopyOnWrite()->indices = store->indices.Map(rewrite_expr);
   Block new_block(/*iter_vars=*/new_iter_vars, /*reads=*/{}, /*writes=*/{write_region},
                   /*name_hint=*/block->name_hint + "_pad_const", /*body=*/std::move(store));
 
@@ -307,7 +310,7 @@ static std::pair<Stmt, BlockRealize> CreateInBoundBlock(const BlockRealizeNode* 
     return analyzer->Simplify(Substitute(e, repl_dict));
   };
   auto rewrite_region = [rewrite_expr](const Region& region) {
-    return MutateArray(region, [rewrite_expr](const Range& r) {
+    return region.Map([rewrite_expr](const Range& r) {
       return Range::FromMinExtent(rewrite_expr(r->min), rewrite_expr(r->extent));
     });
   };
@@ -324,7 +327,7 @@ static std::pair<Stmt, BlockRealize> CreateInBoundBlock(const BlockRealizeNode* 
   // create new block realize node
   BufferStore store = Downcast<BufferStore>(block->body);
   store.CopyOnWrite()->value = rewrite_expr(info.in_bound_value);
-  store.CopyOnWrite()->indices = MutateArray(store->indices, rewrite_expr);
+  store.CopyOnWrite()->indices = store->indices.Map(rewrite_expr);
   Block new_block(/*iter_vars=*/new_iter_vars, /*reads=*/reads, /*writes=*/writes,
                   /*name_hint=*/block->name_hint, /*body=*/std::move(store));
   PrimExpr new_predicate = rewrite_expr(info.in_bound_predicate);
@@ -415,7 +418,7 @@ StmtSRef DecomposePaddingImpl(ScheduleState self, const StmtSRef& block_sref,
    *    - trim original block to write non-padding part only
    */
   // Condition Checks and Information Collection
-  const BlockNode* block = TVM_SREF_TO_BLOCK(block, block_sref);
+  const BlockNode* block = TVM_SREF_TO_BLOCK(block_sref);
   const BlockRealizeNode* realize = GetBlockRealize(self, block_sref).get();
   Map<Var, Range> dom_map;
   arith::Analyzer analyzer;
@@ -440,13 +443,14 @@ StmtSRef DecomposePaddingImpl(ScheduleState self, const StmtSRef& block_sref,
     analyzer.Bind(cur_loop->loop_var, range);
     loops.push_back(cur_loop);
 
-    if (!found_const_filling_pos) {
-      if (cur_loop.same_as(const_filling_pos)) {
-        found_const_filling_pos = true;
+    if (cur_loop.same_as(const_filling_pos)) {
+      ICHECK(!found_const_filling_pos);
+      found_const_filling_pos = true;
+      if (!found_in_bound_filling_pos) {
+        found_in_bound_filling_pos = true;
+        in_bound_filling_pos = cur_loop;
       }
-    }
-
-    if (!found_in_bound_filling_pos) {
+    } else if (!found_in_bound_filling_pos) {
       if (!cur_loop->body->IsInstance<ForNode>() &&
           !cur_loop->body->IsInstance<BlockRealizeNode>()) {
         found_in_bound_filling_pos = true;

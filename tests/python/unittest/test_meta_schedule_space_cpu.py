@@ -16,7 +16,11 @@
 # under the License.
 """Tests for MetaSchedule search space on CPU"""
 from tvm import meta_schedule as ms
-from tvm.meta_schedule.testing.space_generation import check_sketches, print_sketches
+from tvm.meta_schedule.testing.space_generation import (
+    check_sketches,
+    print_sketches,
+    generate_design_space,
+)
 from tvm.meta_schedule.testing.te_workload import create_te_workload
 from tvm.script import tir as T
 from tvm.target import Target
@@ -26,10 +30,19 @@ def _target():
     return Target("aws/cpu/c5.9xlarge")
 
 
+def _design_space(mod):
+    return generate_design_space(
+        kind="llvm",
+        mod=mod,
+        target=_target(),
+        types=ms.ScheduleRule,
+    )
+
+
 def test_cpu_c1d():
     # fmt: off
     @T.prim_func
-    def c1d_0(inputs: T.Buffer[(1, 256, 64), "float32"], weight: T.Buffer[(3, 64, 128), "float32"], conv1d_nlc: T.Buffer[(1, 128, 128), "float32"]) -> None:
+    def c1d_0(inputs: T.Buffer((1, 256, 64), "float32"), weight: T.Buffer((3, 64, 128), "float32"), conv1d_nlc: T.Buffer((1, 128, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -67,7 +80,7 @@ def test_cpu_c1d():
                         T.writes(conv1d_nlc[v0, v1, v2])
                         conv1d_nlc[v0, v1, v2] = conv1d_nlc_global[v0, v1, v2]
     @T.prim_func
-    def c1d_1(inputs: T.Buffer[(1, 256, 64), "float32"], weight: T.Buffer[(3, 64, 128), "float32"], conv1d_nlc: T.Buffer[(1, 128, 128), "float32"]) -> None:
+    def c1d_1(inputs: T.Buffer((1, 256, 64), "float32"), weight: T.Buffer((3, 64, 128), "float32"), conv1d_nlc: T.Buffer((1, 128, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -109,7 +122,7 @@ def test_cpu_c1d():
                         conv1d_nlc[v0, v1, v2] = conv1d_nlc_global[v0, v1, v2]
 
     @T.prim_func
-    def c1d_2(inputs: T.Buffer[(1, 256, 64), "float32"], weight: T.Buffer[(3, 64, 128), "float32"], conv1d_nlc: T.Buffer[(1, 128, 128), "float32"]) -> None:
+    def c1d_2(inputs: T.Buffer((1, 256, 64), "float32"), weight: T.Buffer((3, 64, 128), "float32"), conv1d_nlc: T.Buffer((1, 128, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -161,12 +174,7 @@ def test_cpu_c1d():
     ]
 
     mod = create_te_workload("C1D", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -178,7 +186,7 @@ def test_cpu_c1d():
 def test_cpu_c2d():
     # fmt: off
     @T.prim_func
-    def c2d_0(inputs: T.Buffer[(1, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 3, 64), "float32"], conv2d_nhwc: T.Buffer[(1, 112, 112, 64), "float32"]) -> None:
+    def c2d_0(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -224,7 +232,7 @@ def test_cpu_c2d():
                             T.writes(conv2d_nhwc[v0, v1, v2, v3])
                             conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def c2d_1(inputs: T.Buffer[(1, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 3, 64), "float32"], conv2d_nhwc: T.Buffer[(1, 112, 112, 64), "float32"]) -> None:
+    def c2d_1(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -266,7 +274,7 @@ def test_cpu_c2d():
                         T.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def c2d_2(inputs: T.Buffer[(1, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 3, 64), "float32"], conv2d_nhwc: T.Buffer[(1, 112, 112, 64), "float32"]) -> None:
+    def c2d_2(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -337,12 +345,7 @@ def test_cpu_c2d():
     ]
 
     mod = create_te_workload("C2D", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -354,7 +357,7 @@ def test_cpu_c2d():
 def test_cpu_c3d():
     # fmt: off
     @T.prim_func
-    def c3d_0(inputs: T.Buffer[(1, 16, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 7, 3, 64), "float32"], conv3d_ndhwc: T.Buffer[(1, 8, 112, 112, 64), "float32"]) -> None:
+    def c3d_0(inputs: T.Buffer((1, 16, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Buffer((1, 8, 112, 112, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -404,7 +407,7 @@ def test_cpu_c3d():
                             T.writes(conv3d_ndhwc[v0, v1, v2, v3, v4])
                             conv3d_ndhwc[v0, v1, v2, v3, v4] = conv3d_ndhwc_global[v0, v1, v2, v3, v4]
     @T.prim_func
-    def c3d_1(inputs: T.Buffer[(1, 16, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 7, 3, 64), "float32"], conv3d_ndhwc: T.Buffer[(1, 8, 112, 112, 64), "float32"]) -> None:
+    def c3d_1(inputs: T.Buffer((1, 16, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Buffer((1, 8, 112, 112, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -454,7 +457,7 @@ def test_cpu_c3d():
                         T.writes(conv3d_ndhwc[v0, v1, v2, v3, v4])
                         conv3d_ndhwc[v0, v1, v2, v3, v4] = conv3d_ndhwc_global[v0, v1, v2, v3, v4]
     @T.prim_func
-    def c3d_2(inputs: T.Buffer[(1, 16, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 7, 3, 64), "float32"], conv3d_ndhwc: T.Buffer[(1, 8, 112, 112, 64), "float32"]) -> None:
+    def c3d_2(inputs: T.Buffer((1, 16, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Buffer((1, 8, 112, 112, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -534,12 +537,7 @@ def test_cpu_c3d():
     ]
 
     mod = create_te_workload("C3D", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -551,7 +549,7 @@ def test_cpu_c3d():
 def test_cpu_cap():
     # fmt: off
     @T.prim_func
-    def cap_0(inputs: T.Buffer[(1, 16, 16, 4, 4, 32), "float32"], weight: T.Buffer[(3, 3, 4, 4, 32, 32), "float32"], conv2d_capsule_nhwijc: T.Buffer[(1, 8, 8, 4, 4, 32), "float32"]) -> None:
+    def cap_0(inputs: T.Buffer((1, 16, 16, 4, 4, 32), "float32"), weight: T.Buffer((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Buffer((1, 8, 8, 4, 4, 32), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -602,7 +600,7 @@ def test_cpu_cap():
                             T.writes(conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5])
                             conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5] = conv2d_capsule_nhwijc_global[v0, v1, v2, v3, v4, v5]
     @T.prim_func
-    def cap_1(inputs: T.Buffer[(1, 16, 16, 4, 4, 32), "float32"], weight: T.Buffer[(3, 3, 4, 4, 32, 32), "float32"], conv2d_capsule_nhwijc: T.Buffer[(1, 8, 8, 4, 4, 32), "float32"]) -> None:
+    def cap_1(inputs: T.Buffer((1, 16, 16, 4, 4, 32), "float32"), weight: T.Buffer((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Buffer((1, 8, 8, 4, 4, 32), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -650,7 +648,7 @@ def test_cpu_cap():
                         T.writes(conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5])
                         conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5] = conv2d_capsule_nhwijc_global[v0, v1, v2, v3, v4, v5]
     @T.prim_func
-    def cap_2(inputs: T.Buffer[(1, 16, 16, 4, 4, 32), "float32"], weight: T.Buffer[(3, 3, 4, 4, 32, 32), "float32"], conv2d_capsule_nhwijc: T.Buffer[(1, 8, 8, 4, 4, 32), "float32"]) -> None:
+    def cap_2(inputs: T.Buffer((1, 16, 16, 4, 4, 32), "float32"), weight: T.Buffer((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Buffer((1, 8, 8, 4, 4, 32), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -727,12 +725,7 @@ def test_cpu_cap():
         ("SampleComputeLocation", -1),
     ]
     mod = create_te_workload("CAP", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -744,7 +737,7 @@ def test_cpu_cap():
 def test_cpu_dep():
     # fmt: off
     @T.prim_func
-    def dep_0(placeholder: T.Buffer[(1, 112, 112, 32), "float32"], placeholder_1: T.Buffer[(1, 3, 3, 32), "float32"], depth_conv2d_nhwc: T.Buffer[(1, 112, 112, 32), "float32"]) -> None:
+    def dep_0(placeholder: T.Buffer((1, 112, 112, 32), "float32"), placeholder_1: T.Buffer((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Buffer((1, 112, 112, 32), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -785,7 +778,7 @@ def test_cpu_dep():
                         T.writes(depth_conv2d_nhwc[v0, v1, v2, v3])
                         depth_conv2d_nhwc[v0, v1, v2, v3] = depth_conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def dep_1(placeholder: T.Buffer[(1, 112, 112, 32), "float32"], placeholder_1: T.Buffer[(1, 3, 3, 32), "float32"], depth_conv2d_nhwc: T.Buffer[(1, 112, 112, 32), "float32"]) -> None:
+    def dep_1(placeholder: T.Buffer((1, 112, 112, 32), "float32"), placeholder_1: T.Buffer((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Buffer((1, 112, 112, 32), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -823,7 +816,7 @@ def test_cpu_dep():
                         T.writes(depth_conv2d_nhwc[v0, v1, v2, v3])
                         depth_conv2d_nhwc[v0, v1, v2, v3] = depth_conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def dep_2(placeholder: T.Buffer[(1, 112, 112, 32), "float32"], placeholder_1: T.Buffer[(1, 3, 3, 32), "float32"], depth_conv2d_nhwc: T.Buffer[(1, 112, 112, 32), "float32"]) -> None:
+    def dep_2(placeholder: T.Buffer((1, 112, 112, 32), "float32"), placeholder_1: T.Buffer((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Buffer((1, 112, 112, 32), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -887,12 +880,7 @@ def test_cpu_dep():
         ("SampleComputeLocation", 5),
     ]
     mod = create_te_workload("DEP", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -904,7 +892,7 @@ def test_cpu_dep():
 def test_cpu_dil():
     # fmt: off
     @T.prim_func
-    def dil_0(inputs: T.Buffer[(1, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 3, 64), "float32"], conv2d_nhwc: T.Buffer[(1, 109, 109, 64), "float32"]) -> None:
+    def dil_0(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 109, 109, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -949,7 +937,7 @@ def test_cpu_dil():
                         T.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def dil_1(inputs: T.Buffer[(1, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 3, 64), "float32"], conv2d_nhwc: T.Buffer[(1, 109, 109, 64), "float32"]) -> None:
+    def dil_1(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 109, 109, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -995,7 +983,7 @@ def test_cpu_dil():
                         T.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def dil_2(inputs: T.Buffer[(1, 224, 224, 3), "float32"], weight: T.Buffer[(7, 7, 3, 64), "float32"], conv2d_nhwc: T.Buffer[(1, 109, 109, 64), "float32"]) -> None:
+    def dil_2(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 109, 109, 64), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1065,12 +1053,7 @@ def test_cpu_dil():
         ("SampleComputeLocation", 1),
     ]
     mod = create_te_workload("DIL", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -1082,7 +1065,7 @@ def test_cpu_dil():
 def test_cpu_gmm():
     # fmt: off
     @T.prim_func
-    def gmm_0(X: T.Buffer[(1, 128, 128), "float32"], Y: T.Buffer[(1, 128, 128), "float32"], Z: T.Buffer[(1, 128, 128), "float32"]) -> None:
+    def gmm_0(X: T.Buffer((1, 128, 128), "float32"), Y: T.Buffer((1, 128, 128), "float32"), Z: T.Buffer((1, 128, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1113,7 +1096,7 @@ def test_cpu_gmm():
                         T.writes(Z[v0, v1, v2])
                         Z[v0, v1, v2] = Z_global[v0, v1, v2]
     @T.prim_func
-    def gmm_1(X: T.Buffer[(1, 128, 128), "float32"], Y: T.Buffer[(1, 128, 128), "float32"], Z: T.Buffer[(1, 128, 128), "float32"]) -> None:
+    def gmm_1(X: T.Buffer((1, 128, 128), "float32"), Y: T.Buffer((1, 128, 128), "float32"), Z: T.Buffer((1, 128, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1144,7 +1127,7 @@ def test_cpu_gmm():
                         T.writes(Z[v0, v1, v2])
                         Z[v0, v1, v2] = Z_global[v0, v1, v2]
     @T.prim_func
-    def gmm_2(X: T.Buffer[(1, 128, 128), "float32"], Y: T.Buffer[(1, 128, 128), "float32"], Z: T.Buffer[(1, 128, 128), "float32"]) -> None:
+    def gmm_2(X: T.Buffer((1, 128, 128), "float32"), Y: T.Buffer((1, 128, 128), "float32"), Z: T.Buffer((1, 128, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1187,12 +1170,7 @@ def test_cpu_gmm():
         ("SampleCategorical", 1),
     ]
     mod = create_te_workload("GMM", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -1204,7 +1182,7 @@ def test_cpu_gmm():
 def test_cpu_grp():
     # fmt: off
     @T.prim_func
-    def grp_0(inputs: T.Buffer[(1, 56, 56, 64), "float32"], weight: T.Buffer[(3, 3, 16, 128), "float32"], conv2d_nhwc: T.Buffer[(1, 28, 28, 128), "float32"]) -> None:
+    def grp_0(inputs: T.Buffer((1, 56, 56, 64), "float32"), weight: T.Buffer((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Buffer((1, 28, 28, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1250,7 +1228,7 @@ def test_cpu_grp():
                             T.writes(conv2d_nhwc[v0, v1, v2, v3])
                             conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def grp_1(inputs: T.Buffer[(1, 56, 56, 64), "float32"], weight: T.Buffer[(3, 3, 16, 128), "float32"], conv2d_nhwc: T.Buffer[(1, 28, 28, 128), "float32"]) -> None:
+    def grp_1(inputs: T.Buffer((1, 56, 56, 64), "float32"), weight: T.Buffer((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Buffer((1, 28, 28, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1292,7 +1270,7 @@ def test_cpu_grp():
                         T.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def grp_2(inputs: T.Buffer[(1, 56, 56, 64), "float32"], weight: T.Buffer[(3, 3, 16, 128), "float32"], conv2d_nhwc: T.Buffer[(1, 28, 28, 128), "float32"]) -> None:
+    def grp_2(inputs: T.Buffer((1, 56, 56, 64), "float32"), weight: T.Buffer((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Buffer((1, 28, 28, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1361,12 +1339,7 @@ def test_cpu_grp():
         ("SampleComputeLocation", 9),
     ]
     mod = create_te_workload("GRP", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -1378,7 +1351,7 @@ def test_cpu_grp():
 def test_cpu_t2d():
     # fmt: off
     @T.prim_func
-    def t2d_0(inputs: T.Buffer[(1, 4, 4, 512), "float32"], weight: T.Buffer[(4, 4, 512, 256), "float32"], conv2d_transpose_nhwc: T.Buffer[(1, 8, 8, 256), "float32"]) -> None:
+    def t2d_0(inputs: T.Buffer((1, 4, 4, 512), "float32"), weight: T.Buffer((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Buffer((1, 8, 8, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1420,7 +1393,7 @@ def test_cpu_t2d():
                         T.writes(conv2d_transpose_nhwc[v0, v1, v2, v3])
                         conv2d_transpose_nhwc[v0, v1, v2, v3] = conv2d_transpose_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def t2d_1(inputs: T.Buffer[(1, 4, 4, 512), "float32"], weight: T.Buffer[(4, 4, 512, 256), "float32"], conv2d_transpose_nhwc: T.Buffer[(1, 8, 8, 256), "float32"]) -> None:
+    def t2d_1(inputs: T.Buffer((1, 4, 4, 512), "float32"), weight: T.Buffer((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Buffer((1, 8, 8, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1463,7 +1436,7 @@ def test_cpu_t2d():
                         T.writes(conv2d_transpose_nhwc[v0, v1, v2, v3])
                         conv2d_transpose_nhwc[v0, v1, v2, v3] = conv2d_transpose_nhwc_global[v0, v1, v2, v3]
     @T.prim_func
-    def t2d_2(inputs: T.Buffer[(1, 4, 4, 512), "float32"], weight: T.Buffer[(4, 4, 512, 256), "float32"], conv2d_transpose_nhwc: T.Buffer[(1, 8, 8, 256), "float32"]) -> None:
+    def t2d_2(inputs: T.Buffer((1, 4, 4, 512), "float32"), weight: T.Buffer((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Buffer((1, 8, 8, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1521,12 +1494,7 @@ def test_cpu_t2d():
         ("SampleComputeLocation", -2),
     ]
     mod = create_te_workload("T2D", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -1539,7 +1507,7 @@ def test_cpu_t2d():
 def test_cpu_nrm():
     # fmt: off
     @T.prim_func
-    def nrm_0(A: T.Buffer[(1, 256, 256), "float32"], D: T.Buffer[1, "float32"]) -> None:
+    def nrm_0(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1572,7 +1540,7 @@ def test_cpu_nrm():
                     T.writes(D[b])
                     D[b] = T.sqrt(C[b], dtype="float32")
     @T.prim_func
-    def nrm_1(A: T.Buffer[(1, 256, 256), "float32"], D: T.Buffer[1, "float32"]) -> None:
+    def nrm_1(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1605,7 +1573,7 @@ def test_cpu_nrm():
                     T.writes(D[b])
                     D[b] = T.sqrt(C[b], dtype="float32")
     @T.prim_func
-    def nrm_2(A: T.Buffer[(1, 256, 256), "float32"], D: T.Buffer[1, "float32"]) -> None:
+    def nrm_2(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1646,12 +1614,7 @@ def test_cpu_nrm():
         ("SampleComputeLocation", -1),
     ]
     mod = create_te_workload("NRM", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -1663,7 +1626,7 @@ def test_cpu_nrm():
 def test_cpu_sfm():
     # fmt: off
     @T.prim_func
-    def sfm_0(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_0(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1716,7 +1679,7 @@ def test_cpu_sfm():
                     T.block_attr({"axis":1})
                     T_softmax_norm[i0_7, i1_2] = T.exp(A[i0_7, i1_2] - T_softmax_maxelem[i0_7], dtype="float32") / T_softmax_expsum[i0_7]
     @T.prim_func
-    def sfm_1(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_1(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1779,7 +1742,7 @@ def test_cpu_sfm():
                     T.block_attr({"axis":1})
                     T_softmax_norm[i0_9, i1_2] = T_softmax_exp[i0_9, i1_2] / T_softmax_expsum[i0_9]
     @T.prim_func
-    def sfm_2(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_2(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1822,7 +1785,7 @@ def test_cpu_sfm():
                     T.block_attr({"axis":1})
                     T_softmax_norm[i0_6, i1_2] = T.exp(A[i0_6, i1_2] - T_softmax_maxelem[i0_6], dtype="float32") / T_softmax_expsum[i0_6]
     @T.prim_func
-    def sfm_3(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_3(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1889,7 +1852,7 @@ def test_cpu_sfm():
                     T.block_attr({"axis":1})
                     T_softmax_norm[i0_6, i1_2] = T_softmax_exp[i0_6, i1_2] / T_softmax_expsum[i0_6]
     @T.prim_func
-    def sfm_4(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_4(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -1951,7 +1914,7 @@ def test_cpu_sfm():
                     T.block_attr({"axis":1})
                     T_softmax_norm[i0_10, i1_4] = T_softmax_exp[i0_10, i1_4] / T_softmax_expsum[i0_10]
     @T.prim_func
-    def sfm_5(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_5(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -2008,7 +1971,7 @@ def test_cpu_sfm():
                         T.block_attr({"axis":1})
                         T_softmax_norm[i0_5, i1_1] = T_softmax_exp[i0_5, i1_1] / T_softmax_expsum[i0_5]
     @T.prim_func
-    def sfm_6(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_6(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -2054,7 +2017,7 @@ def test_cpu_sfm():
                     T.block_attr({"axis":1})
                     T_softmax_norm[i0_6, i1_1] = T.exp(A[i0_6, i1_1] - T_softmax_maxelem[i0_6], dtype="float32") / T_softmax_expsum[i0_6]
     @T.prim_func
-    def sfm_7(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_7(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -2098,7 +2061,7 @@ def test_cpu_sfm():
                     T.block_attr({"axis":1})
                     T_softmax_norm[i0_5, i1_2] = T.exp(A[i0_5, i1_2] - T_softmax_maxelem[i0_5], dtype="float32") / T_softmax_expsum[i0_5]
     @T.prim_func
-    def sfm_8(A: T.Buffer[(256, 256), "float32"], T_softmax_norm: T.Buffer[(256, 256), "float32"]) -> None:
+    def sfm_8(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         # body
@@ -2220,12 +2183,7 @@ def test_cpu_sfm():
         ("SampleComputeLocation", 0),
     ]
     mod = create_te_workload("SFM", 0)
-    actual = ms.TuneContext(
-        mod=mod,
-        target=_target(),
-        space_generator=ms.space_generator.PostOrderApply(),
-        sch_rules="default",
-    ).generate_design_space()
+    actual = _design_space(mod)
     check_sketches(
         mod,
         sketches=actual,
@@ -2244,6 +2202,354 @@ def test_cpu_sfm():
     )
 
 
+def test_cpu_cbr():
+    # fmt: off
+    @T.prim_func
+    def cbr_0(data: T.Buffer((1, 224, 224, 3), "float32"), kernel: T.Buffer((7, 7, 3, 64), "float32"), bias: T.Buffer(64, "float32"), bn_offset: T.Buffer(64, "float32"), bn_scale: T.Buffer(64, "float32"), compute: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+        # function attr dict
+        T.func_attr({"global_symbol": "main", "tir.noalias": True})
+        # body
+        with T.block("root"):
+            T.reads()
+            T.writes()
+            T.block_attr({"meta_schedule.parallel":288, "meta_schedule.unroll_explicit":64, "meta_schedule.vectorize":64})
+            Conv2dOutput = T.alloc_buffer([1, 112, 112, 64], dtype="float32")
+            for i0_0, i1_0, i2_0, i3_0, i0_1, i1_1, i2_1, i3_1, i4_0, i5_0, i6_0, i0_2, i1_2, i2_2, i3_2, i4_1, i5_1, i6_1, i0_3, i1_3, i2_3, i3_3 in T.grid(1, 2, 7, 1, 1, 2, 2, 32, 7, 7, 1, 1, 1, 4, 1, 1, 1, 3, 1, 28, 2, 2):
+                with T.block("Conv2dOutput"):
+                    nn = T.axis.spatial(1, i0_3 + i0_0 + i0_1 + i0_2)
+                    yy = T.axis.spatial(112, i1_0 * 56 + i1_1 * 28 + i1_2 * 28 + i1_3)
+                    xx = T.axis.spatial(112, i2_0 * 16 + i2_1 * 8 + i2_2 * 2 + i2_3)
+                    ff = T.axis.spatial(64, i3_0 * 64 + i3_1 * 2 + i3_2 * 2 + i3_3)
+                    ry = T.axis.reduce(7, i4_1 + i4_0)
+                    rx = T.axis.reduce(7, i5_0 + i5_1)
+                    rc = T.axis.reduce(3, i6_0 * 3 + i6_1)
+                    T.reads(data[nn, yy * 2 + ry - 3, xx * 2 + rx - 3, rc], kernel[ry, rx, rc, ff])
+                    T.writes(Conv2dOutput[nn, yy, xx, ff])
+                    T.block_attr({"meta_schedule.tiling_structure":"SSRSRS"})
+                    with T.init():
+                        Conv2dOutput[nn, yy, xx, ff] = T.float32(0)
+                    Conv2dOutput[nn, yy, xx, ff] = Conv2dOutput[nn, yy, xx, ff] + T.if_then_else(3 <= yy * 2 + ry and yy * 2 + ry < 227 and 3 <= xx * 2 + rx and xx * 2 + rx < 227, data[nn, yy * 2 + ry - 3, xx * 2 + rx - 3, rc], T.float32(0), dtype="float32") * kernel[ry, rx, rc, ff]
+            for i0, i1, i2, i3 in T.grid(1, 112, 112, 64):
+                with T.block("compute"):
+                    i0_4, i1_4, i2_4, i3_4 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+                    T.reads(Conv2dOutput[i0_4, i1_4, i2_4, i3_4], bias[i3_4], bn_scale[i3_4], bn_offset[i3_4])
+                    T.writes(compute[i0_4, i1_4, i2_4, i3_4])
+                    compute[i0_4, i1_4, i2_4, i3_4] = T.max((Conv2dOutput[i0_4, i1_4, i2_4, i3_4] + bias[i3_4]) * bn_scale[i3_4] + bn_offset[i3_4], T.float32(0))
+    @T.prim_func
+    def cbr_1(data: T.Buffer((1, 224, 224, 3), "float32"), kernel: T.Buffer((7, 7, 3, 64), "float32"), bias: T.Buffer(64, "float32"), bn_offset: T.Buffer(64, "float32"), bn_scale: T.Buffer(64, "float32"), compute: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+        # function attr dict
+        T.func_attr({"global_symbol": "main", "tir.noalias": True})
+        # body
+        with T.block("root"):
+            T.reads()
+            T.writes()
+            T.block_attr({"meta_schedule.parallel":288, "meta_schedule.unroll_explicit":512, "meta_schedule.vectorize":64})
+            PaddedInput = T.alloc_buffer([1, 230, 230, 3], dtype="float32")
+            Conv2dOutput = T.alloc_buffer([1, 112, 112, 64], dtype="float32")
+            for i0_0, i1_0 in T.grid(1, 2):
+                for ax0, ax1, ax2, ax3 in T.grid(1, 117, 229, 3):
+                    with T.block("PaddedInput"):
+                        i0 = T.axis.spatial(1, ax0)
+                        i1 = T.axis.spatial(230, i1_0 * 112 + ax1)
+                        i2 = T.axis.spatial(230, ax2)
+                        i3 = T.axis.spatial(3, ax3)
+                        T.reads(data[i0, i1 - 3, i2 - 3, i3])
+                        T.writes(PaddedInput[i0, i1, i2, i3])
+                        PaddedInput[i0, i1, i2, i3] = T.if_then_else(3 <= i1 and i1 < 227 and 3 <= i2 and i2 < 227, data[i0, i1 - 3, i2 - 3, i3], T.float32(0), dtype="float32")
+                for i2_0, i3_0, i0_1, i1_1, i2_1, i3_1 in T.grid(7, 1, 1, 2, 2, 32):
+                    for i4_0, i5_0, i6_0, i0_2, i1_2, i2_2, i3_2, i4_1, i5_1, i6_1, i0_3, i1_3, i2_3, i3_3 in T.grid(7, 7, 1, 1, 1, 4, 1, 1, 1, 3, 1, 28, 2, 2):
+                        with T.block("Conv2dOutput"):
+                            nn = T.axis.spatial(1, i0_3 + i0_0 + i0_1 + i0_2)
+                            yy = T.axis.spatial(112, i1_0 * 56 + i1_1 * 28 + i1_2 * 28 + i1_3)
+                            xx = T.axis.spatial(112, i2_0 * 16 + i2_1 * 8 + i2_2 * 2 + i2_3)
+                            ff = T.axis.spatial(64, i3_0 * 64 + i3_1 * 2 + i3_2 * 2 + i3_3)
+                            ry = T.axis.reduce(7, i4_1 + i4_0)
+                            rx = T.axis.reduce(7, i5_0 + i5_1)
+                            rc = T.axis.reduce(3, i6_0 * 3 + i6_1)
+                            T.reads(PaddedInput[nn, yy * 2 + ry, xx * 2 + rx, rc], kernel[ry, rx, rc, ff])
+                            T.writes(Conv2dOutput[nn, yy, xx, ff])
+                            T.block_attr({"meta_schedule.tiling_structure":"SSRSRS"})
+                            with T.init():
+                                Conv2dOutput[nn, yy, xx, ff] = T.float32(0)
+                            Conv2dOutput[nn, yy, xx, ff] = Conv2dOutput[nn, yy, xx, ff] + PaddedInput[nn, yy * 2 + ry, xx * 2 + rx, rc] * kernel[ry, rx, rc, ff]
+                    for ax0, ax1, ax2, ax3 in T.grid(1, 28, 8, 2):
+                        with T.block("compute"):
+                            i0 = T.axis.spatial(1, ax0)
+                            i1 = T.axis.spatial(112, i1_0 * 56 + i1_1 * 28 + ax1)
+                            i2 = T.axis.spatial(112, i2_0 * 16 + i2_1 * 8 + ax2)
+                            i3 = T.axis.spatial(64, i3_1 * 2 + ax3)
+                            T.reads(Conv2dOutput[i0, i1, i2, i3], bias[i3], bn_scale[i3], bn_offset[i3])
+                            T.writes(compute[i0, i1, i2, i3])
+                            compute[i0, i1, i2, i3] = T.max((Conv2dOutput[i0, i1, i2, i3] + bias[i3]) * bn_scale[i3] + bn_offset[i3], T.float32(0))
+    @T.prim_func
+    def cbr_2(data: T.Buffer((1, 224, 224, 3), "float32"), kernel: T.Buffer((7, 7, 3, 64), "float32"), bias: T.Buffer(64, "float32"), bn_offset: T.Buffer(64, "float32"), bn_scale: T.Buffer(64, "float32"), compute: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+        # function attr dict
+        T.func_attr({"global_symbol": "main", "tir.noalias": True})
+        # body
+        with T.block("root"):
+            T.reads()
+            T.writes()
+            T.block_attr({"meta_schedule.parallel":288, "meta_schedule.unroll_explicit":64, "meta_schedule.vectorize":64})
+            PaddedInput = T.alloc_buffer([1, 230, 230, 3], dtype="float32")
+            Conv2dOutput = T.alloc_buffer([1, 112, 112, 64], dtype="float32")
+            for i0_0, i1_0 in T.grid(1, 2):
+                for ax0, ax1, ax2, ax3 in T.grid(1, 117, 229, 3):
+                    with T.block("PaddedInput"):
+                        i0 = T.axis.spatial(1, ax0)
+                        i1 = T.axis.spatial(230, i1_0 * 112 + ax1)
+                        i2 = T.axis.spatial(230, ax2)
+                        i3 = T.axis.spatial(3, ax3)
+                        T.reads(data[i0, i1 - 3, i2 - 3, i3])
+                        T.writes(PaddedInput[i0, i1, i2, i3])
+                        PaddedInput[i0, i1, i2, i3] = T.if_then_else(3 <= i1 and i1 < 227 and 3 <= i2 and i2 < 227, data[i0, i1 - 3, i2 - 3, i3], T.float32(0), dtype="float32")
+                for i2_0, i3_0 in T.grid(7, 1):
+                    for i0_1, i1_1, i2_1, i3_1, i4_0, i5_0, i6_0, i0_2, i1_2, i2_2, i3_2, i4_1, i5_1, i6_1, i0_3, i1_3, i2_3, i3_3 in T.grid(1, 2, 2, 32, 7, 7, 1, 1, 1, 4, 1, 1, 1, 3, 1, 28, 2, 2):
+                        with T.block("Conv2dOutput"):
+                            nn = T.axis.spatial(1, i0_3 + i0_0 + i0_1 + i0_2)
+                            yy = T.axis.spatial(112, i1_0 * 56 + i1_1 * 28 + i1_2 * 28 + i1_3)
+                            xx = T.axis.spatial(112, i2_0 * 16 + i2_1 * 8 + i2_2 * 2 + i2_3)
+                            ff = T.axis.spatial(64, i3_0 * 64 + i3_1 * 2 + i3_2 * 2 + i3_3)
+                            ry = T.axis.reduce(7, i4_1 + i4_0)
+                            rx = T.axis.reduce(7, i5_0 + i5_1)
+                            rc = T.axis.reduce(3, i6_0 * 3 + i6_1)
+                            T.reads(PaddedInput[nn, yy * 2 + ry, xx * 2 + rx, rc], kernel[ry, rx, rc, ff])
+                            T.writes(Conv2dOutput[nn, yy, xx, ff])
+                            T.block_attr({"meta_schedule.tiling_structure":"SSRSRS"})
+                            with T.init():
+                                Conv2dOutput[nn, yy, xx, ff] = T.float32(0)
+                            Conv2dOutput[nn, yy, xx, ff] = Conv2dOutput[nn, yy, xx, ff] + PaddedInput[nn, yy * 2 + ry, xx * 2 + rx, rc] * kernel[ry, rx, rc, ff]
+                    for ax0, ax1, ax2, ax3 in T.grid(1, 56, 16, 64):
+                        with T.block("compute"):
+                            i0 = T.axis.spatial(1, ax0)
+                            i1 = T.axis.spatial(112, i1_0 * 56 + ax1)
+                            i2 = T.axis.spatial(112, i2_0 * 16 + ax2)
+                            i3 = T.axis.spatial(64, ax3)
+                            T.reads(Conv2dOutput[i0, i1, i2, i3], bias[i3], bn_scale[i3], bn_offset[i3])
+                            T.writes(compute[i0, i1, i2, i3])
+                            compute[i0, i1, i2, i3] = T.max((Conv2dOutput[i0, i1, i2, i3] + bias[i3]) * bn_scale[i3] + bn_offset[i3], T.float32(0))
+    # fmt: on
+    decision_0 = [
+        ("SamplePerfectTile", [1, 1, 1, 1]),
+        ("SamplePerfectTile", [2, 2, 1, 28]),
+        ("SamplePerfectTile", [7, 2, 4, 2]),
+        ("SamplePerfectTile", [1, 32, 1, 2]),
+        ("SamplePerfectTile", [7, 1]),
+        ("SamplePerfectTile", [7, 1]),
+        ("SamplePerfectTile", [1, 3]),
+        ("SampleCategorical", 2),
+        ("SampleComputeLocation", -2),
+    ]
+    decision_1 = [
+        ("SamplePerfectTile", [1, 1, 1, 1]),
+        ("SamplePerfectTile", [2, 2, 1, 28]),
+        ("SamplePerfectTile", [7, 2, 4, 2]),
+        ("SamplePerfectTile", [1, 32, 1, 2]),
+        ("SamplePerfectTile", [7, 1]),
+        ("SamplePerfectTile", [7, 1]),
+        ("SamplePerfectTile", [1, 3]),
+        ("SampleCategorical", 3),
+        ("SampleComputeLocation", 1),
+    ]
+    decision_2 = [
+        ("SamplePerfectTile", [1, 1, 1, 1]),
+        ("SamplePerfectTile", [2, 2, 1, 28]),
+        ("SamplePerfectTile", [7, 2, 4, 2]),
+        ("SamplePerfectTile", [1, 32, 1, 2]),
+        ("SamplePerfectTile", [7, 1]),
+        ("SamplePerfectTile", [7, 1]),
+        ("SamplePerfectTile", [1, 3]),
+        ("SampleCategorical", 2),
+        ("SampleComputeLocation", 1),
+    ]
+    mod = create_te_workload("CBR", 0)
+    actual = _design_space(mod)
+    check_sketches(
+        mod,
+        sketches=actual,
+        expected_mods=[cbr_0, cbr_1, cbr_2],
+        expected_decisions=[decision_0, decision_1, decision_2],
+    )
+
+
+def test_cpu_tbg():
+    # fmt: off
+    @T.prim_func
+    def tbg_0(query: T.Buffer((1, 128, 12, 64), "float32"), value: T.Buffer((1, 128, 12, 64), "float32"), C: T.Buffer((1, 12, 128, 128), "float32")) -> None:
+        # function attr dict
+        T.func_attr({"global_symbol": "main", "tir.noalias": True})
+        # body
+        with T.block("root"):
+            T.reads()
+            T.writes()
+            T.block_attr({"meta_schedule.parallel":288, "meta_schedule.unroll_explicit":64, "meta_schedule.vectorize":64})
+            query_T = T.alloc_buffer([1, 12, 128, 64], dtype="float32")
+            value_T = T.alloc_buffer([1, 12, 64, 128], dtype="float32")
+            C_global = T.alloc_buffer([1, 12, 128, 128], dtype="float32")
+            for i0_0, i1_0, i2_0, i3_0, i0_1, i1_1, i2_1 in T.grid(1, 1, 1, 2, 1, 6, 2):
+                for ax0, ax1, ax2, ax3 in T.grid(1, 2, 64, 64):
+                    with T.block("value_T"):
+                        b = T.axis.spatial(1, ax0)
+                        h = T.axis.spatial(12, i1_1 * 2 + ax1)
+                        d = T.axis.spatial(64, ax2)
+                        l = T.axis.spatial(128, i3_0 * 64 + ax3)
+                        T.reads(value[b, l, h, d])
+                        T.writes(value_T[b, h, d, l])
+                        value_T[b, h, d, l] = value[b, l, h, d]
+                for ax0, ax1, ax2, ax3 in T.grid(1, 2, 64, 64):
+                    with T.block("query_T"):
+                        b = T.axis.spatial(1, ax0)
+                        h = T.axis.spatial(12, i1_1 * 2 + ax1)
+                        l = T.axis.spatial(128, i2_1 * 64 + ax2)
+                        d = T.axis.spatial(64, ax3)
+                        T.reads(query[b, l, h, d])
+                        T.writes(query_T[b, h, l, d])
+                        query_T[b, h, l, d] = query[b, l, h, d]
+                for i3_1 in T.serial(8):
+                    for i4_0, i0_2, i1_2, i2_2, i3_2, i4_1, i0_3, i1_3, i2_3, i3_3 in T.grid(1, 1, 2, 2, 4, 64, 1, 1, 32, 2):
+                        with T.block("C"):
+                            b = T.axis.spatial(1, i0_1 + i0_2 + i0_3 + i0_0)
+                            h = T.axis.spatial(12, i1_0 * 12 + i1_1 * 2 + i1_2 + i1_3)
+                            i = T.axis.spatial(128, i2_0 * 128 + i2_1 * 64 + i2_2 * 32 + i2_3)
+                            j = T.axis.spatial(128, i3_0 * 64 + i3_1 * 8 + i3_2 * 2 + i3_3)
+                            k = T.axis.reduce(64, i4_0 * 64 + i4_1)
+                            T.reads(query_T[b, h, i, k], value_T[b, h, k, j])
+                            T.writes(C_global[b, h, i, j])
+                            T.block_attr({"meta_schedule.tiling_structure":"SSRSRS"})
+                            with T.init():
+                                C_global[b, h, i, j] = T.float32(0)
+                            C_global[b, h, i, j] = C_global[b, h, i, j] + query_T[b, h, i, k] * value_T[b, h, k, j]
+                    for ax0, ax1, ax2, ax3 in T.grid(1, 2, 64, 8):
+                        with T.block("C_global"):
+                            v0 = T.axis.spatial(1, ax0)
+                            v1 = T.axis.spatial(12, i1_1 * 2 + ax1)
+                            v2 = T.axis.spatial(128, i2_1 * 64 + ax2)
+                            v3 = T.axis.spatial(128, i3_0 * 64 + i3_1 * 8 + ax3)
+                            T.reads(C_global[v0, v1, v2, v3])
+                            T.writes(C[v0, v1, v2, v3])
+                            C[v0, v1, v2, v3] = C_global[v0, v1, v2, v3]
+    @T.prim_func
+    def tbg_1(query: T.Buffer((1, 128, 12, 64), "float32"), value: T.Buffer((1, 128, 12, 64), "float32"), C: T.Buffer((1, 12, 128, 128), "float32")) -> None:
+        # function attr dict
+        T.func_attr({"global_symbol": "main", "tir.noalias": True})
+        # body
+        with T.block("root"):
+            T.reads()
+            T.writes()
+            T.block_attr({"meta_schedule.parallel":288, "meta_schedule.unroll_explicit":64, "meta_schedule.vectorize":64})
+            query_T = T.alloc_buffer([1, 12, 128, 64], dtype="float32")
+            value_T = T.alloc_buffer([1, 12, 64, 128], dtype="float32")
+            C_global = T.alloc_buffer([1, 12, 128, 128], dtype="float32")
+            for i0, i1, i2, i3 in T.grid(1, 12, 128, 64):
+                with T.block("query_T"):
+                    b, h, l, d = T.axis.remap("SSSS", [i0, i1, i2, i3])
+                    T.reads(query[b, l, h, d])
+                    T.writes(query_T[b, h, l, d])
+                    query_T[b, h, l, d] = query[b, l, h, d]
+            for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 1, 1, 2):
+                for i0_1, i1_1, i2_1, i3_1, i4_0, i0_2, i1_2, i2_2, i3_2, i4_1 in T.grid(1, 6, 2, 8, 1, 1, 2, 2, 4, 64):
+                    for ax0, ax1, ax2, ax3 in T.grid(1, 1, 1, 2):
+                        with T.block("value_T"):
+                            b = T.axis.spatial(1, ax0)
+                            h = T.axis.spatial(12, i1_1 * 2 + i1_2 + ax1)
+                            d = T.axis.spatial(64, i4_1 + ax2)
+                            l = T.axis.spatial(128, i3_0 * 64 + i3_1 * 8 + i3_2 * 2 + ax3)
+                            T.reads(value[b, l, h, d])
+                            T.writes(value_T[b, h, d, l])
+                            value_T[b, h, d, l] = value[b, l, h, d]
+                    for i0_3, i1_3, i2_3, i3_3 in T.grid(1, 1, 32, 2):
+                        with T.block("C"):
+                            b = T.axis.spatial(1, i0_1 + i0_2 + i0_3 + i0_0)
+                            h = T.axis.spatial(12, i1_0 * 12 + i1_1 * 2 + i1_2 + i1_3)
+                            i = T.axis.spatial(128, i2_0 * 128 + i2_1 * 64 + i2_2 * 32 + i2_3)
+                            j = T.axis.spatial(128, i3_0 * 64 + i3_1 * 8 + i3_2 * 2 + i3_3)
+                            k = T.axis.reduce(64, i4_0 * 64 + i4_1)
+                            T.reads(query_T[b, h, i, k], value_T[b, h, k, j])
+                            T.writes(C_global[b, h, i, j])
+                            T.block_attr({"meta_schedule.tiling_structure":"SSRSRS"})
+                            with T.init():
+                                C_global[b, h, i, j] = T.float32(0)
+                            C_global[b, h, i, j] = C_global[b, h, i, j] + query_T[b, h, i, k] * value_T[b, h, k, j]
+                for ax0, ax1, ax2, ax3 in T.grid(1, 12, 128, 64):
+                    with T.block("C_global"):
+                        v0, v1, v2 = T.axis.remap("SSS", [ax0, ax1, ax2])
+                        v3 = T.axis.spatial(128, i3_0 * 64 + ax3)
+                        T.reads(C_global[v0, v1, v2, v3])
+                        T.writes(C[v0, v1, v2, v3])
+                        C[v0, v1, v2, v3] = C_global[v0, v1, v2, v3]
+    @T.prim_func
+    def tbg_2(query: T.Buffer((1, 128, 12, 64), "float32"), value: T.Buffer((1, 128, 12, 64), "float32"), C: T.Buffer((1, 12, 128, 128), "float32")) -> None:
+        # function attr dict
+        T.func_attr({"global_symbol": "main", "tir.noalias": True})
+        # body
+        with T.block("root"):
+            T.reads()
+            T.writes()
+            T.block_attr({"meta_schedule.parallel":288, "meta_schedule.unroll_explicit":512, "meta_schedule.vectorize":64})
+            value_T = T.alloc_buffer([1, 12, 64, 128], dtype="float32")
+            for i0_0, i1_0, i2_0, i3_0, i0_1, i1_1, i2_1, i3_1 in T.grid(1, 1, 1, 2, 1, 6, 2, 8):
+                for ax0, ax1, ax2, ax3 in T.grid(1, 2, 64, 8):
+                    with T.block("value_T"):
+                        b = T.axis.spatial(1, ax0)
+                        h = T.axis.spatial(12, i1_1 * 2 + ax1)
+                        d = T.axis.spatial(64, ax2)
+                        l = T.axis.spatial(128, i3_0 * 64 + i3_1 * 8 + ax3)
+                        T.reads(value[b, l, h, d])
+                        T.writes(value_T[b, h, d, l])
+                        value_T[b, h, d, l] = value[b, l, h, d]
+                for i4_0, i0_2, i1_2, i2_2, i3_2, i4_1, i0_3, i1_3, i2_3, i3_3 in T.grid(1, 1, 2, 2, 4, 64, 1, 1, 32, 2):
+                    with T.block("C"):
+                        b = T.axis.spatial(1, i0_1 + i0_2 + i0_3 + i0_0)
+                        h = T.axis.spatial(12, i1_0 * 12 + i1_1 * 2 + i1_2 + i1_3)
+                        i = T.axis.spatial(128, i2_0 * 128 + i2_1 * 64 + i2_2 * 32 + i2_3)
+                        j = T.axis.spatial(128, i3_0 * 64 + i3_1 * 8 + i3_2 * 2 + i3_3)
+                        k = T.axis.reduce(64, i4_0 * 64 + i4_1)
+                        T.reads(query[b, i, h, k], value_T[b, h, k, j])
+                        T.writes(C[b, h, i, j])
+                        T.block_attr({"meta_schedule.tiling_structure":"SSRSRS"})
+                        with T.init():
+                            C[b, h, i, j] = T.float32(0)
+                        C[b, h, i, j] = C[b, h, i, j] + query[b, i, h, k] * value_T[b, h, k, j]
+    # fmt: on
+    decision_0 = [
+        ("SamplePerfectTile", [1, 1, 1, 1]),
+        ("SamplePerfectTile", [1, 6, 2, 1]),
+        ("SamplePerfectTile", [1, 2, 2, 32]),
+        ("SamplePerfectTile", [2, 8, 4, 2]),
+        ("SamplePerfectTile", [1, 64]),
+        ("SampleCategorical", 2),
+        ("SampleComputeLocation", 6),
+        ("SampleComputeLocation", 6),
+    ]
+    decision_1 = [
+        ("SamplePerfectTile", [1, 1, 1, 1]),
+        ("SamplePerfectTile", [1, 6, 2, 1]),
+        ("SamplePerfectTile", [1, 2, 2, 32]),
+        ("SamplePerfectTile", [2, 8, 4, 2]),
+        ("SamplePerfectTile", [1, 64]),
+        ("SampleCategorical", 2),
+        ("SampleComputeLocation", 13),
+        ("SampleComputeLocation", -1),
+    ]
+    decision_2 = [
+        ("SamplePerfectTile", [1, 1, 1, 1]),
+        ("SamplePerfectTile", [1, 6, 2, 1]),
+        ("SamplePerfectTile", [1, 2, 2, 32]),
+        ("SamplePerfectTile", [2, 8, 4, 2]),
+        ("SamplePerfectTile", [1, 64]),
+        ("SampleCategorical", 3),
+        ("SampleComputeLocation", 7),
+        ("SampleComputeLocation", -2),
+    ]
+    mod = create_te_workload("TBG", 0)
+    actual = _design_space(mod)
+    check_sketches(
+        mod,
+        sketches=actual,
+        expected_mods=[tbg_0, tbg_1, tbg_2],
+        expected_decisions=[decision_0, decision_1, decision_2],
+    )
+
+
 if __name__ == "__main__":
     test_cpu_c1d()
     test_cpu_c2d()
@@ -2256,3 +2562,5 @@ if __name__ == "__main__":
     test_cpu_t2d()
     test_cpu_nrm()
     test_cpu_sfm()
+    test_cpu_cbr()
+    test_cpu_tbg()

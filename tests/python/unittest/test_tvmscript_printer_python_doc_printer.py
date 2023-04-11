@@ -17,14 +17,15 @@
 import itertools
 
 import pytest
-
 import tvm
 from tvm.script.printer.doc import (
     AssertDoc,
     AssignDoc,
     CallDoc,
     ClassDoc,
+    CommentDoc,
     DictDoc,
+    DocStringDoc,
     ExprStmtDoc,
     ForDoc,
     FunctionDoc,
@@ -54,7 +55,7 @@ def format_script(s: str) -> str:
     non_empty_lines = [line for line in s.splitlines() if line and not line.isspace()]
     if not non_empty_lines:
         # no actual content
-        return "\n"
+        return ""
 
     line_indents = [len(line) - len(line.lstrip(" ")) for line in non_empty_lines]
     spaces_to_remove = min(line_indents)
@@ -62,7 +63,7 @@ def format_script(s: str) -> str:
     cleaned_lines = "\n".join(line[spaces_to_remove:] for line in s.splitlines())
     if not cleaned_lines.endswith("\n"):
         cleaned_lines += "\n"
-    return cleaned_lines
+    return cleaned_lines.strip()
 
 
 @pytest.mark.parametrize(
@@ -161,6 +162,7 @@ def test_print_index_doc(indices, expected):
 UNARY_OP_TOKENS = {
     OperationKind.USub: "-",
     OperationKind.Invert: "~",
+    OperationKind.Not: "not ",
 }
 
 
@@ -193,6 +195,8 @@ BINARY_OP_TOKENS = {
     OperationKind.NotEq: "!=",
     OperationKind.Gt: ">",
     OperationKind.GtE: ">=",
+    OperationKind.And: "and",
+    OperationKind.Or: "or",
 }
 
 
@@ -886,6 +890,64 @@ def test_print_class_doc(decorators, body, expected):
 
 
 @pytest.mark.parametrize(
+    "comment, expected",
+    [
+        (
+            "",
+            "",
+        ),
+        (
+            "test comment 1",
+            "# test comment 1",
+        ),
+        (
+            "test comment 1\ntest comment 2",
+            """
+            # test comment 1
+            # test comment 2
+            """,
+        ),
+    ],
+    ids=itertools.count(),
+)
+def test_print_comment_doc(comment, expected):
+    doc = CommentDoc(comment)
+    assert to_python_script(doc) == format_script(expected)
+
+
+@pytest.mark.parametrize(
+    "comment, expected",
+    [
+        (
+            "",
+            "",
+        ),
+        (
+            "test comment 1",
+            '''
+            """
+            test comment 1
+            """
+            ''',
+        ),
+        (
+            "test comment 1\ntest comment 2",
+            '''
+            """
+            test comment 1
+            test comment 2
+            """
+            ''',
+        ),
+    ],
+    ids=itertools.count(),
+)
+def test_print_doc_string_doc(comment, expected):
+    doc = DocStringDoc(comment)
+    assert to_python_script(doc) == format_script(expected)
+
+
+@pytest.mark.parametrize(
     "doc, comment, expected",
     [
         (
@@ -1060,6 +1122,9 @@ def generate_expr_precedence_test_cases():
     def invert(a):
         return OperationDoc(OperationKind.Invert, [a])
 
+    def not_(a):
+        return OperationDoc(OperationKind.Not, [a])
+
     def add(a, b):
         return OperationDoc(OperationKind.Add, [a, b])
 
@@ -1098,6 +1163,12 @@ def generate_expr_precedence_test_cases():
 
     def not_eq(a, b):
         return OperationDoc(OperationKind.NotEq, [a, b])
+
+    def and_(a, b):
+        return OperationDoc(OperationKind.And, [a, b])
+
+    def or_(a, b):
+        return OperationDoc(OperationKind.Or, [a, b])
 
     def if_then_else(a, b, c):
         return OperationDoc(OperationKind.IfThenElse, [a, b, c])
@@ -1283,6 +1354,56 @@ def generate_expr_precedence_test_cases():
             (
                 lt(x, if_then_else(y, y, y)),
                 "x < (y if y else y)",
+            ),
+        ],
+        "boolean": [
+            (
+                not_(and_(x, y)),
+                "not (x and y)",
+            ),
+            (
+                and_(not_(x), y),
+                "not x and y",
+            ),
+            (
+                and_(or_(x, y), z),
+                "(x or y) and z",
+            ),
+            (
+                or_(x, or_(y, z)),
+                "x or (y or z)",
+            ),
+            (
+                or_(or_(x, y), z),
+                "x or y or z",
+            ),
+            (
+                or_(and_(x, y), z),
+                # Maybe we should consider adding parentheses here
+                # for readability, even though it's not necessary.
+                "x and y or z",
+            ),
+            (
+                and_(or_(not_(x), y), z),
+                "(not x or y) and z",
+            ),
+            (
+                and_(lt(x, y), lt(y, z)),
+                "x < y and y < z",
+            ),
+            (
+                or_(not_(eq(x, y)), lt(y, z)),
+                # Same as the previous one, the code here is not
+                # readable without parentheses.
+                "not x == y or y < z",
+            ),
+            (
+                and_(if_then_else(x, y, z), x),
+                "(y if x else z) and x",
+            ),
+            (
+                not_(if_then_else(x, y, z)),
+                "not (y if x else z)",
             ),
         ],
         "if-then-else": [

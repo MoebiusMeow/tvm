@@ -693,7 +693,10 @@ def _conv3d(opname):
             raise tvm.error.OpAttributeInvalid(msg.format(attr["padding"]))
 
         if "kernel_layout" not in attr:
-            attr["kernel_layout"] = "DHWIO" if attr["data_format"] == "NDHWC" else "OIDHW"
+            if opname == "conv":
+                attr["kernel_layout"] = "DHWIO" if attr["data_format"] == "NDHWC" else "OIDHW"
+            elif opname == "conv_transpose":
+                attr["kernel_layout"] = "DHWOI" if attr["data_format"] == "NDHWC" else "IODHW"
 
         use_bias = len(inputs) == (3 if opname != "conv_transpose" else 4)
         channel_axis = 1 if attr["data_format"] == "NCDHW" else 4
@@ -1847,7 +1850,7 @@ def _reshape():
                 shape_arg = tuple(params_new.numpy().astype("int32").flatten())
             except Exception:
                 # Deal with symbolic shape case.
-                if isinstance(pop_node, _expr.Call) and "shape_of" in str(pop_node.op):
+                if isinstance(pop_node, _expr.Call) and "shape_of" in str(pop_node.op.name):
                     # shape_of is the direct ancestor.
                     return _op.reshape_like(inputs[0], pop_node.args[0])
                 shape_arg = pop_node
@@ -2383,6 +2386,24 @@ def _where():
     def _impl(inputs, attr, params, mod):
         if len(inputs) == 1:
             return AttrCvt(op_name="argwhere")(inputs, attr)
+        cond_shape = _infer_shape(inputs[0], mod)
+        x_shape = _infer_shape(inputs[1], mod)
+        # Due to difference in broadcast behavior between Select and SelectV2,
+        # we adjust condition dimension with expand_dim and then broadcast.
+        if len(cond_shape) == 1 and cond_shape[0] == x_shape[0]:
+            for _ in range(len(x_shape) - 1):
+                inputs[0] = _op.expand_dims(inputs[0], axis=-1)
+            broadcast_cond = _op.broadcast_to(inputs[0], x_shape)
+            inputs[0] = _op.cast(broadcast_cond, "bool")
+        return AttrCvt(op_name="where")(inputs, attr)
+
+    return _impl
+
+
+def _where_v2():
+    def _impl(inputs, attr, params, mod):
+        if len(inputs) == 1:
+            return AttrCvt(op_name="argwhere")(inputs, attr)
         return AttrCvt(op_name="where")(inputs, attr)
 
     return _impl
@@ -2868,6 +2889,98 @@ def _unique(return_counts=True):
     return _impl
 
 
+def _bincount():
+    def _impl(inputs, attr, params, mod):
+        input = inputs[0]  # arr: int32 Tensor
+        size = inputs[1]  # size: non-negative int scalar Tensor
+        # weights: int32, int64, float32, or float64 Tensor with the same shape as arr
+        # or a length-0 Tensor, in which case it acts as all weights equal to 1.
+        weights = inputs[2]
+        # Returns: Output: 1D Tensor with length equal to size
+        # The counts or summed weights for each value in the range [0, size).
+
+        input_shape = _infer_shape(input, mod)
+        if len(input_shape) > 1:
+            input = _op.reshape(input, [-1])
+
+        is_weights_zero_tensor = True
+        if weights:
+            weights_shape = _infer_shape(weights, mod)
+            is_weights_zero_tensor = weights_shape == (0,)
+            if len(weights_shape) > 1:
+                weights = _op.reshape(weights, [-1])
+
+        # Output should have the same dtype as weights.
+        if is_weights_zero_tensor:
+            # if weights are length-0 Tensor - output dtype is float32
+            out_dtype = "float32"
+            updates = _op.cast(_op.ones_like(input), out_dtype)
+        else:
+            out_dtype = _infer_type(weights, mod).checked_type.dtype
+            updates = weights
+
+        counts_shape = _op.reshape(size, [1])
+        counts = _op.zeros(counts_shape, out_dtype)
+        out = _op.scatter_elements(counts, input, updates, axis=0, reduction="add")
+        return out
+
+    return _impl
+
+
+def _dense_bincount():
+    def _impl(inputs, attr, params, mod):
+        input = inputs[0]  # input: int32, int64. 1D or 2D int Tensor
+        size = inputs[1]  # size: non-negative int scalar Tensor
+        # weights: int32, int64, float32, or float64 Tensor with the same shape as input
+        # or a length-0 Tensor, in which case it acts as all weights equal to 1.
+        weights = inputs[2]
+        # Returns: Output: 1D Tensor with length equal to size
+        # or 2D Tensor with [batch_size, size].
+        # The counts or summed weights for each value in the range [0, size).
+
+        input_dtype = _infer_type(input, mod).checked_type.dtype
+        input_shape = _infer_shape(input, mod)
+        is_2d_input = len(input_shape) == 2
+
+        if input_dtype == "int64":
+            warnings.warn(
+                "Casting an int64 input to int32, since we do not have int64 atomic add"
+                "needed for bincount yet."
+            )
+            input = _op.cast(input, "int32")
+
+        is_weights_zero_tensor = True
+        if weights:
+            weights_shape = _infer_shape(weights, mod)
+            is_weights_zero_tensor = weights_shape == (0,)
+
+        # Output should have the same dtype as weights.
+        if is_weights_zero_tensor:
+            # if weights are length-0 Tensor - output dtype is float32
+            out_dtype = "float32"
+            updates = _op.cast(_op.ones_like(input), out_dtype)
+        else:
+            out_dtype = _infer_type(weights, mod).checked_type.dtype
+            updates = weights
+
+        if is_2d_input:
+            batch_arr = _op.take(_op.shape_of(input), _expr.const([0]))
+            size_arr = _op.reshape(size, [1])
+            counts_shape = _op.concatenate([batch_arr, size_arr], axis=0)
+            counts = _op.zeros(counts_shape, out_dtype)
+            out = _op.scatter_elements(counts, input, updates, axis=1, reduction="add")
+        else:
+            counts_shape = _op.reshape(size, [1])
+            counts = _op.zeros(counts_shape, out_dtype)
+            out = _op.scatter_elements(counts, input, updates, axis=0, reduction="add")
+
+        if attr["binary_output"]:
+            out = _op.cast(_op.cast(out, "bool"), out_dtype)
+        return out
+
+    return _impl
+
+
 # _convert_map defines maps of name to converter functor(callable)
 # for 1 to 1 mapping, use Renamer if nothing but name is different
 # use AttrCvt if attributes need to be converted
@@ -2897,6 +3010,7 @@ _convert_map = {
     "BatchNormWithGlobalNormalization": _batch_norm(),
     "BatchToSpaceND": _batch_to_space_nd(),
     "BiasAdd": _bias_add(),
+    "Bincount": _bincount(),
     "BroadcastTo": _broadcast_to(),
     "BroadcastArgs": _broadcast_args(),
     "Cast": _cast(),
@@ -2913,6 +3027,7 @@ _convert_map = {
     "Cosh": AttrCvt("cosh"),
     "CropAndResize": _crop_and_resize(),
     "DecodeJpeg": _decode_image(),
+    "DenseBincount": _dense_bincount(),
     "DepthToSpace": _depth_to_space(),
     "DepthwiseConv2dNative": _conv("depthwise"),
     "Dilation2D": _dilation2d(),
@@ -2994,7 +3109,7 @@ _convert_map = {
     "Round": AttrCvt("round"),
     "Rsqrt": _rsqrt(),
     "Select": _where(),
-    "SelectV2": _where(),
+    "SelectV2": _where_v2(),
     "Selu": _selu(),
     "Shape": _shape(),
     "Sigmoid": AttrCvt("sigmoid"),
@@ -3048,6 +3163,6 @@ _convert_map = {
     "UniqueWithCounts": _unique(True),
     "Unpack": _unpack(),
     "UnravelIndex": _unravel_index(),
-    "Where": _where(),
+    "Where": _where_v2(),
     "ZerosLike": AttrCvt("zeros_like"),
 }

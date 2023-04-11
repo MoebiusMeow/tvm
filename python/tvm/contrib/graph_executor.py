@@ -153,6 +153,21 @@ class GraphModule(object):
     def __init__(self, module):
         self.module = module
         self._set_input = module["set_input"]
+
+        # TODO(shingjan): The graph_executor in C doesn't have
+        # set_input/output_zero_copy implemented.
+        try:
+            self._set_input_zero_copy = module["set_input_zero_copy"]
+        except AttributeError:
+            self._set_input_zero_copy = lambda *_: (_ for _ in ()).throw(
+                Exception("set_input_zero_copy is not implemented for C graph executor")
+            )
+        try:
+            self._set_output_zero_copy = module["set_output_zero_copy"]
+        except AttributeError:
+            self._set_output_zero_copy = lambda *_: (_ for _ in ()).throw(
+                Exception("set_output_zero_copy is not implemented for C graph executor")
+            )
         self._run = module["run"]
         self._get_output = module["get_output"]
         self._get_input = module["get_input"]
@@ -172,7 +187,7 @@ class GraphModule(object):
            The input key
 
         value : the input value.
-           The input key
+           The input value
 
         params : dict of str to NDArray
            Additional arguments
@@ -194,6 +209,47 @@ class GraphModule(object):
                 val = self._get_input(k)
                 if val:
                     self._get_input(k).copyfrom(params[k])
+
+    def set_input_zero_copy(self, key=None, value=None, **params):
+        """Set inputs to the module via kwargs with zero memory copy
+
+        Parameters
+        ----------
+        key : int or str
+           The input key
+
+        value : the input value in DLPack
+           The input value
+
+        params : dict of str to NDArray
+           Additional arguments
+        """
+        if key is not None:
+            self._set_input_zero_copy(key, value)
+
+        if params:
+            keys = list(params.keys())
+
+            for k in keys:
+                # TODO(zhiics) Skip the weights for submodule in a better way.
+                # We should use ConstLoaderModule for initialization and remove
+                # params from set_input
+                val = self._get_input(k)
+                if val:
+                    self._set_input_zero_copy(k, params[k])
+
+    def set_output_zero_copy(self, key, value):
+        """Set outputs to the module with zero memory copy
+
+        Parameters
+        ----------
+        key : int or str
+           The output key
+
+        value : the output value in DLPack
+           The output value
+        """
+        self._set_output_zero_copy(key, value)
 
     def run(self, **input_dict):
         """Run forward execution of the graph
@@ -355,6 +411,7 @@ class GraphModule(object):
         repeat=5,
         number=5,
         min_repeat_ms=None,
+        limit_zero_time_iterations=100,
         end_to_end=False,
         cooldown_interval_ms=0,
         repeats_to_cooldown=1,
@@ -402,6 +459,10 @@ class GraphModule(object):
             milliseconds. This can be used to ensure that the function is run enough to get an
             accurate measurement.
 
+        limit_zero_time_iterations : Optional[int]
+            The maximum number of repeats when measured time is equal to 0.
+            It helps to avoid hanging during measurements.
+
         end_to_end : bool
             If set, include time to transfer input tensors to the device and time to transfer
             returned tensors in the total runtime. This will give accurate timings for end to end
@@ -437,6 +498,7 @@ class GraphModule(object):
                 repeat=repeat,
                 number=number,
                 min_repeat_ms=min_repeat_ms,
+                limit_zero_time_iterations=limit_zero_time_iterations,
             )(device.device_type % rpc_base.RPC_SESS_MASK, device.device_id, *args)
         if kwargs:
             self.set_input(**kwargs)
@@ -446,6 +508,7 @@ class GraphModule(object):
             repeat=repeat,
             number=number,
             min_repeat_ms=min_repeat_ms,
+            limit_zero_time_iterations=limit_zero_time_iterations,
             cooldown_interval_ms=cooldown_interval_ms,
             repeats_to_cooldown=repeats_to_cooldown,
         )()

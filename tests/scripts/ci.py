@@ -147,7 +147,14 @@ def gen_name(s: str) -> str:
     return f"{s}-{suffix}"
 
 
-def docker(name: str, image: str, scripts: List[str], env: Dict[str, str], interactive: bool):
+def docker(
+    name: str,
+    image: str,
+    scripts: List[str],
+    env: Dict[str, str],
+    interactive: bool,
+    additional_flags: Optional[Dict[str, str]] = None,
+):
     """
     Invoke a set of bash scripts through docker/bash.sh
 
@@ -165,9 +172,11 @@ def docker(name: str, image: str, scripts: List[str], env: Dict[str, str], inter
         "ci_cpu",
         # "ci_wasm",
         # "ci_i386",
-        "ci_qemu",
+        "ci_cortexm",
         "ci_arm",
         "ci_hexagon",
+        "ci_riscv",
+        "ci_adreno",
     }
 
     if image in sccache_images and os.getenv("USE_SCCACHE", "1") == "1":
@@ -195,6 +204,11 @@ def docker(name: str, image: str, scripts: List[str], env: Dict[str, str], inter
         command.append("--env")
         command.append(f"{key}={value}")
 
+    if additional_flags is not None:
+        for key, value in additional_flags.items():
+            command.append(key)
+            command.append(value)
+
     SCRIPT_DIR.mkdir(exist_ok=True)
 
     script_file = SCRIPT_DIR / f"{name}.sh"
@@ -218,6 +232,7 @@ def docker(name: str, image: str, scripts: List[str], env: Dict[str, str], inter
 
 def docs(
     tutorial_pattern: Optional[str] = None,
+    cpu: bool = False,
     full: bool = False,
     interactive: bool = False,
     skip_build: bool = False,
@@ -228,8 +243,9 @@ def docs(
     the Python docs without any tutorials.
 
     arguments:
-    full -- Build all language docs, not just Python (this will use the 'ci_gpu' Docker image)
-    tutorial-pattern -- Regex for which tutorials to execute when building docs (this will use the 'ci_gpu' Docker image)
+    full -- Build all language docs, not just Python (cannot be used with --cpu)
+    cpu -- Use the 'ci_cpu' Docker image (useful for building docs on a machine without a GPU)
+    tutorial-pattern -- Regex for which tutorials to execute when building docs (cannot be used with --cpu)
     skip_build -- skip build and setup scripts
     interactive -- start a shell after running build / test scripts
     docker-image -- manually specify the docker image to use
@@ -238,7 +254,7 @@ def docs(
 
     extra_setup = []
     image = "ci_gpu" if docker_image is None else docker_image
-    if not full and tutorial_pattern is None:
+    if cpu:
         # TODO: Change this to tlcpack/docs once that is uploaded
         image = "ci_cpu" if docker_image is None else docker_image
         build_dir = get_build_dir("cpu")
@@ -258,7 +274,6 @@ def docs(
         requirements = [
             "Sphinx==4.2.0",
             "tlcpack-sphinx-addon==0.2.1",
-            "synr==0.5.0",
             "image==1.5.33",
             # Temporary git link until a release is published
             "git+https://github.com/sphinx-gallery/sphinx-gallery.git@6142f1791151849b5bec4bf3959f75697ba226cd",
@@ -271,7 +286,7 @@ def docs(
         ]
 
         extra_setup = [
-            "python3 -m pip install --user " + " ".join(requirements),
+            "python3 -m pip install " + " ".join(requirements),
         ]
     else:
         check_gpu()
@@ -297,6 +312,13 @@ def docs(
         "TVM_LIBRARY_PATH": str(REPO_ROOT / build_dir),
     }
     docker(name=gen_name("docs"), image=image, scripts=scripts, env=env, interactive=interactive)
+    print_color(
+        col.GREEN,
+        "Done building the docs. You can view them by running "
+        "'python3 tests/scripts/ci.py serve-docs' and visiting:"
+        " http://localhost:8000 in your browser.",
+        bold=True,
+    )
 
 
 def serve_docs(directory: str = "_docs") -> None:
@@ -344,6 +366,7 @@ def generate_command(
     help: str,
     precheck: Optional[Callable[[], None]] = None,
     post_build: Optional[List[str]] = None,
+    additional_flags: Optional[Dict[str, str]] = None,
 ):
     """
     Helper to generate CLIs that:
@@ -410,6 +433,7 @@ def generate_command(
                 "VERBOSE": "true" if verbose else "false",
             },
             interactive=interactive,
+            additional_flags=additional_flags,
         )
 
     fn.__name__ = name
@@ -568,6 +592,7 @@ generated = [
                 "run unit tests",
                 [
                     "./tests/scripts/task_java_unittest.sh",
+                    "./tests/scripts/task_opencl_cpp_unittest.sh",
                     "./tests/scripts/task_python_unittest_gpuonly.sh",
                     "./tests/scripts/task_python_integration_gpuonly.sh",
                 ],
@@ -596,6 +621,19 @@ generated = [
         },
     ),
     generate_command(
+        name="minimal",
+        help="Run minimal CPU build and test(s)",
+        options={
+            "cpp": CPP_UNITTEST,
+            "unittest": (
+                "run unit tests",
+                [
+                    "./tests/scripts/task_python_unittest.sh",
+                ],
+            ),
+        },
+    ),
+    generate_command(
         name="i386",
         help="Run i386 build and test(s)",
         options={
@@ -618,8 +656,8 @@ generated = [
         },
     ),
     generate_command(
-        name="qemu",
-        help="Run QEMU build and test(s)",
+        name="cortexm",
+        help="Run Cortex-M build and test(s)",
         options={
             "cpp": CPP_UNITTEST,
             "test": (
@@ -656,6 +694,58 @@ generated = [
                 [
                     "./tests/scripts/task_python_unittest.sh",
                     "./tests/scripts/task_python_arm_compute_library.sh",
+                ],
+            ),
+        },
+    ),
+    generate_command(
+        name="riscv",
+        help="Run RISC-V build and test(s)",
+        options={
+            "cpp": CPP_UNITTEST,
+            "python": (
+                "run full Python tests",
+                [
+                    "./tests/scripts/task_riscv_microtvm.sh",
+                ],
+            ),
+        },
+    ),
+    generate_command(
+        name="adreno",
+        help="Run Adreno build and test(s)",
+        post_build=["./tests/scripts/task_build_adreno_bins.sh"],
+        additional_flags={
+            "--volume": os.environ.get("ADRENO_OPENCL", "") + ":/adreno-opencl",
+            "--env": "ADRENO_OPENCL=/adreno-opencl",
+            "--net": "host",
+        },
+        options={
+            "test": (
+                "run Adreno API/Python tests",
+                [
+                    "./tests/scripts/task_python_adreno.sh " + os.environ.get("ANDROID_SERIAL", ""),
+                ],
+            ),
+            "benchmarks": (
+                "run Adreno Benchmarks (Native OpenCL, CLML SDK)",
+                [
+                    "./apps/benchmark/adreno/bench.sh texture "
+                    + os.environ.get("ANDROID_SERIAL", ""),
+                    "./apps/benchmark/adreno/bench.sh clml " + os.environ.get("ANDROID_SERIAL", ""),
+                ],
+            ),
+            "nativebenchmarks": (
+                "run Adreno Texture Benchmarks",
+                [
+                    "./apps/benchmark/adreno/bench.sh texture "
+                    + os.environ.get("ANDROID_SERIAL", ""),
+                ],
+            ),
+            "clmlbenchmarks": (
+                "run Adreno CLML SDK Benchmarks",
+                [
+                    "./apps/benchmark/adreno/bench.sh clml " + os.environ.get("ANDROID_SERIAL", ""),
                 ],
             ),
         },

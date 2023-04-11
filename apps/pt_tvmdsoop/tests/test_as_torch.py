@@ -17,13 +17,14 @@
 # specific language governing permissions and limitations
 # under the License.
 """Test script for tvm torch module"""
+import tempfile
+
 import numpy as np
 
 import torch
 import torch.nn
 
 import tvm
-from tvm.meta_schedule.tune import TuneConfig
 from tvm.target.target import Target
 import tvm.testing
 from tvm.contrib.torch import as_torch
@@ -51,7 +52,7 @@ def matmul(M: int, N: int, K: int, dtype: str):
 @tvm.script.ir_module
 class ModuleGPU:
     @T.prim_func
-    def main(A: T.Buffer[8, "float32"], B: T.Buffer[8, "float32"]) -> None:
+    def main(A: T.Buffer(8, "float32"), B: T.Buffer(8, "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tir.noalias": True})
         for i_0 in T.thread_binding(2, thread="blockIdx.x"):
             for i_2 in T.thread_binding(2, thread="threadIdx.x"):
@@ -82,14 +83,6 @@ def func_with_part_access_region(a: T.handle, b: T.handle, c: T.handle) -> None:
                 vi, vj = T.axis.remap("SS", [i, j])
                 T.writes(C[vi, vj])
                 C[vi, vj] = B[vi, vj] + T.float32(1)
-
-
-config = TuneConfig(
-    strategy="replay_trace",
-    num_trials_per_iter=128,
-    max_trials_per_task=128,
-    max_trials_global=128,
-)
 
 
 @as_torch
@@ -190,7 +183,10 @@ def test_tvmscript_torch_gpu():
     q1 = torch.arange(8, device=cuda0).type(torch.float32)
     q2 = torch.zeros((8,), dtype=torch.float32, device=cuda0)
 
-    ModuleGPU(q1, q2)
+    with tempfile.NamedTemporaryFile(suffix=".pt") as tmp:
+        torch.save(ModuleGPU, tmp.name)
+        loaded_mod = torch.load(tmp.name)
+        loaded_mod(q1, q2)
 
     tvm.testing.assert_allclose(q2.cpu().numpy(), (q1 + 1).cpu().numpy(), atol=1e-5, rtol=1e-5)
 
@@ -227,7 +223,11 @@ def test_tvmscript_torch_loop_split():
 
     result = torch.sum(x.cpu(), dim=1).numpy()
 
-    loop_split.tune(config, Target("nvidia/geforce-rtx-3070"))
+    loop_split.tune(
+        "nvidia/geforce-rtx-3070",
+        max_trials_global=128,
+        strategy="replay-trace",
+    )
     loop_split(x, y)
 
     tvm.testing.assert_allclose(y.cpu().numpy(), result, atol=1e-5, rtol=1e-5)
@@ -241,7 +241,10 @@ def test_tvmscript_torch_elementwise_with_root():
     result = a1 + 2
 
     func = elementwise_with_root(128, 128, "float32")
-    func.tune(config)
+    func.tune(
+        max_trials_global=128,
+        strategy="replay-trace",
+    )
     func(a1, a2, a3)
 
     tvm.testing.assert_allclose(a3.numpy(), result.numpy(), atol=1e-5, rtol=1e-5)

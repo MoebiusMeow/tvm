@@ -23,6 +23,7 @@
 #include "codegen_c.h"
 
 #include <tvm/arith/analyzer.h>
+#include <tvm/ir/name_supply.h>
 
 #include <cctype>
 #include <iomanip>
@@ -45,33 +46,33 @@ void CodeGenC::InitFuncState(const PrimFunc& f) {
 
 void CodeGenC::ReserveKeywordsAsUnique() {
   // skip the first underscore, so SSA variable starts from _1
-  GetUniqueName("_");
-  GetUniqueName("extern");
-  GetUniqueName("void");
-  GetUniqueName("int");
-  GetUniqueName("float");
-  GetUniqueName("double");
-  GetUniqueName("char");
-  GetUniqueName("unsigned");
-  GetUniqueName("short");
-  GetUniqueName("long");
-  GetUniqueName("if");
-  GetUniqueName("else");
-  GetUniqueName("switch");
-  GetUniqueName("case");
-  GetUniqueName("default");
-  GetUniqueName("for");
-  GetUniqueName("do");
-  GetUniqueName("while");
-  GetUniqueName("goto");
-  GetUniqueName("register");
-  GetUniqueName("continue");
-  GetUniqueName("break");
-  GetUniqueName("typedef");
-  GetUniqueName("struct");
-  GetUniqueName("enum");
-  GetUniqueName("union");
-  GetUniqueName("return");
+  name_supply_->ReserveName("_");
+  name_supply_->ReserveName("extern");
+  name_supply_->ReserveName("void");
+  name_supply_->ReserveName("int");
+  name_supply_->ReserveName("float");
+  name_supply_->ReserveName("double");
+  name_supply_->ReserveName("char");
+  name_supply_->ReserveName("unsigned");
+  name_supply_->ReserveName("short");
+  name_supply_->ReserveName("long");
+  name_supply_->ReserveName("if");
+  name_supply_->ReserveName("else");
+  name_supply_->ReserveName("switch");
+  name_supply_->ReserveName("case");
+  name_supply_->ReserveName("default");
+  name_supply_->ReserveName("for");
+  name_supply_->ReserveName("do");
+  name_supply_->ReserveName("while");
+  name_supply_->ReserveName("goto");
+  name_supply_->ReserveName("register");
+  name_supply_->ReserveName("continue");
+  name_supply_->ReserveName("break");
+  name_supply_->ReserveName("typedef");
+  name_supply_->ReserveName("struct");
+  name_supply_->ReserveName("enum");
+  name_supply_->ReserveName("union");
+  name_supply_->ReserveName("return");
 }
 
 void CodeGenC::AddFunction(const PrimFunc& f) {
@@ -85,7 +86,7 @@ void CodeGenC::AddFunction(const PrimFunc& f) {
       << "CodeGenC: Expect PrimFunc to have the global_symbol attribute";
   bool no_alias = f->HasNonzeroAttr(tir::attr::kNoAlias);
 
-  this->PrintFuncPrefix();
+  this->PrintFuncPrefix(stream);
   this->PrintExtraAttrs(f);
   this->stream << " " << static_cast<std::string>(global_symbol.value()) << "(";
 
@@ -127,7 +128,7 @@ void CodeGenC::AddFunction(const PrimFunc& f) {
   this->stream << "}\n\n";
 }
 
-void CodeGenC::PrintFuncPrefix() { stream << "void"; }
+void CodeGenC::PrintFuncPrefix(std::ostream& os) { os << "void"; }
 
 void CodeGenC::PrintExtraAttrs(const PrimFunc& f) {}
 
@@ -540,6 +541,7 @@ void CodeGenC::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
       ICHECK_GE(op->args.size(), 1U);
       auto func = Downcast<StringImm>(op->args[0]);
       this->PrintCallExtern(GetType(GetRef<PrimExpr>(op)), func->value, op->args, true, os);
+      this->GenerateForwardFunctionDeclarations(func->value, op->args);
     } else if (op_attr_global_symbol_.count(call_op)) {
       // call extern if the op itself have a global symbol.
       this->PrintCallExtern(GetType(GetRef<PrimExpr>(op)), op_attr_global_symbol_[call_op],
@@ -631,7 +633,8 @@ void CodeGenC::PrintVecBinaryOp(const std::string& op, DataType t, PrimExpr lhs,
 }
 
 void CodeGenC::VisitStmt_(const AllocateConstNode* op) {
-  std::string symbol_name = op->buffer_var->name_hint;
+  std::string symbol_name = AllocVarID(op->buffer_var.get());
+
   int64_t num_elements = 1;
   const auto& data = op->data.value();
 
@@ -661,9 +664,7 @@ void CodeGenC::VisitStmt_(const AllocateConstNode* op) {
   this->PrintStmt(op->body);
 }
 
-void CodeGenC::VisitExpr_(const LoadNode* op, std::ostream& os) {  // NOLINT(*)
-  LOG(FATAL) << "Unexpected deprecated LoadNode.  Use BufferLoadNode instead.";
-}
+void CodeGenC::VisitStmt_(const DeclBufferNode* op) { this->PrintStmt(op->body); }
 
 void CodeGenC::VisitExpr_(const BufferLoadNode* op, std::ostream& os) {  // NOLINT(*)
   ICHECK_EQ(op->indices.size(), 1) << "Load from non-flat memory not supported.";
@@ -724,10 +725,6 @@ void CodeGenC::VisitExpr_(const BufferLoadNode* op, std::ostream& os) {  // NOLI
   }
 }
 
-void CodeGenC::VisitStmt_(const StoreNode* op) {
-  LOG(FATAL) << "Unexpected deprecated StoreNode.  Use BufferStoreNode instead.";
-}
-
 void CodeGenC::VisitStmt_(const BufferStoreNode* op) {
   ICHECK_EQ(op->indices.size(), 1) << "Store to non-flat memory not supported.";
 
@@ -752,7 +749,7 @@ void CodeGenC::VisitStmt_(const BufferStoreNode* op) {
       // be reused across multiple expression, thus a new scope is needed
       int vec_scope = BeginScope();
 
-      // store elements seperately
+      // store elements separately
       std::string index = SSAGetID(PrintExpr(index_expr), index_expr.dtype());
       std::string value = SSAGetID(PrintExpr(op->value), op->value.dtype());
       std::string vid = GetVarID(buffer_var.get());
@@ -797,15 +794,16 @@ void CodeGenC::VisitExpr_(const LetNode* op, std::ostream& os) {  // NOLINT(*)
 }
 
 void CodeGenC::VisitExpr_(const RampNode* op, std::ostream& os) {  // NOLINT(*)
-  // constraint of current logic
-  ICHECK_EQ(op->base.dtype(), DataType::Int(32));
-  os << "((int" << op->lanes << ")(";
+  // NOTE: C have comma expression so cannot use (int2)(v0, v1)
+  // instead should use int2(v0, v1)
+  PrintType(op->dtype, os);
+  os << "(";
   for (int i = 0; i < op->lanes; i++) {
     os << "(" << PrintExpr(op->base) << ")"
        << "+(" << PrintExpr(op->stride) << "*" << i << ")";
     if (i != op->lanes - 1) os << ", ";
   }
-  os << "))";
+  os << ")";
 }
 
 void CodeGenC::VisitExpr_(const ShuffleNode* op, std::ostream& os) {
@@ -934,11 +932,11 @@ void CodeGenC::VisitStmt_(const IfThenElseNode* op) {
   PrintStmt(op->then_case);
   this->EndScope(then_scope);
 
-  if (op->else_case.defined()) {
+  if (op->else_case) {
     PrintIndent();
     stream << "} else {\n";
     int else_scope = BeginScope();
-    PrintStmt(op->else_case);
+    PrintStmt(op->else_case.value());
     this->EndScope(else_scope);
   }
   PrintIndent();
@@ -994,9 +992,11 @@ void CodeGenC::PrintVecElemLoadExpr(DataType t, int i, const std::string& value,
   }
 
   if (i == 0) {
-    os << "((";
+    // NOTE: C have comma expression so cannot use (float2)(v0, v1)
+    // instead should use float2(v0, v1)
+    os << "(";
     PrintType(t, os);
-    os << ")(";
+    os << "(";
   }
   os << value;
   if (i != t.lanes() - 1) {

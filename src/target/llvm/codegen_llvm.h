@@ -23,6 +23,7 @@
  */
 #ifndef TVM_TARGET_LLVM_CODEGEN_LLVM_H_
 #define TVM_TARGET_LLVM_CODEGEN_LLVM_H_
+
 #ifdef TVM_LLVM_VERSION
 
 #include <llvm/ADT/ArrayRef.h>
@@ -36,11 +37,11 @@
 #else
 #include <llvm/IR/Operator.h>
 #endif
+#include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/GlobalValue.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
-#include <llvm/IR/LLVMContext.h>
 #include <llvm/Support/Casting.h>
 #if TVM_LLVM_VERSION >= 140
 #include <llvm/MC/TargetRegistry.h>
@@ -70,6 +71,7 @@
 #include "../../runtime/thread_storage_scope.h"
 #include "../../tir/transforms/ir_utils.h"
 #include "codegen_params.h"
+#include "llvm_instance.h"
 
 namespace llvm {
 class Argument;
@@ -78,7 +80,6 @@ class Function;
 class GlobalVariable;
 class Instruction;
 class PassManagerBuilder;
-class TargetMachine;
 class DIFile;
 class DICompileUnit;
 class MDNode;
@@ -109,7 +110,7 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
    * \param tm The target machine
    * \return The created llvm generator.
    */
-  static std::unique_ptr<CodeGenLLVM> Create(llvm::TargetMachine* tm);
+  static std::unique_ptr<CodeGenLLVM> Create(LLVMTarget* llvm_target);
   /*!
    * \brief Initialize the code generator with given context
    * \param module_name The name of the module.
@@ -121,14 +122,14 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
    * \param target_c_runtime If true, generate a module to be executed by the C runtime. In practice
    *                       this option influences whether global ctors are used.
    */
-  virtual void Init(const std::string& module_name, llvm::TargetMachine* tm, llvm::LLVMContext* ctx,
-                    bool system_lib, bool dynamic_lookup, bool target_c_runtime);
+  virtual void Init(const std::string& module_name, LLVMTarget* llvm_target, bool system_lib,
+                    bool dynamic_lookup, bool target_c_runtime);
 
   /*!
    * \brief Turn on fast math flags for floating point operations.
    * \param fmf FastMathFlags to use for code generation.
    */
-  void SetFastMathFlag(llvm::FastMathFlags fmf);
+  void SetFastMathFlags(llvm::FastMathFlags fmf);
 
   /*!
    * \brief Compile and add function f to the current module.
@@ -203,14 +204,12 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   llvm::Value* VisitExpr_(const NotNode* op) override;
   llvm::Value* VisitExpr_(const SelectNode* op) override;
   llvm::Value* VisitExpr_(const LetNode* op) override;
-  llvm::Value* VisitExpr_(const LoadNode* op) override;
   llvm::Value* VisitExpr_(const BufferLoadNode* op) override;
   llvm::Value* VisitExpr_(const CallNode* op) override;
   llvm::Value* VisitExpr_(const RampNode* op) override;
   llvm::Value* VisitExpr_(const ShuffleNode* op) override;
   llvm::Value* VisitExpr_(const BroadcastNode* op) override;
   // stmt
-  void VisitStmt_(const StoreNode* op) override;
   void VisitStmt_(const BufferStoreNode* op) override;
   void VisitStmt_(const ForNode* op) override;
   void VisitStmt_(const WhileNode* op) override;
@@ -222,6 +221,7 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   void VisitStmt_(const LetStmtNode* op) override;
   void VisitStmt_(const SeqStmtNode* op) override;
   void VisitStmt_(const EvaluateNode* op) override;
+  void VisitStmt_(const DeclBufferNode* op) override;
 
   // Get constant string
   llvm::Constant* GetConstString(const std::string& str);
@@ -229,9 +229,6 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   llvm::Constant* GetGlobalConstant(
       llvm::Constant* const_data, const std::string& name = "",
       llvm::GlobalValue::LinkageTypes linkage_type = llvm::GlobalValue::InternalLinkage);
-  inline llvm::ConstantArray* NDArrayToLLVMArray(::tvm::runtime::NDArray arr) {
-    return codegen::NDArrayToLLVMArray(ctx_, arr);
-  }
 
  protected:
   /*!
@@ -304,8 +301,11 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   virtual llvm::Value* GetThreadIndex(const IterVar& iv);
   // Get the corresponding thread index
   virtual llvm::Value* CreateStorageSync(const CallNode* op);
+#if TVM_LLVM_VERSION < 160
+  // This function only works with the legacy pass manager.
   // apply optimization on the module.
   virtual void InitPassManagerBuilder(llvm::PassManagerBuilder* builder);
+#endif
   // Scalarize by iterating elements of e.
   // f is a callback that takes index and v.
   void Scalarize(const PrimExpr& e, std::function<void(int i, llvm::Value* v)> f);
@@ -340,7 +340,7 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
                                        bool is_volatile)>
           make_instruction);
   // Initialize target
-  virtual void InitTarget(llvm::TargetMachine* tm);
+  virtual void InitTarget();
   // Add module startup function if needed.
   virtual void AddStartupFunction() {}
   // apply optimization on the module.
@@ -397,6 +397,14 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
    * \param func The function to set attributes on.
    */
   void SetTargetAttributes(llvm::Function* func);
+  /*!
+   * \brief Emit LLVM IR for conversion functions __extendhfsf2 and __truncsfhf2
+   *        into the current llvm::Module.
+   *
+   * \param use_float16_abi Whether to use floating-point or integer ABI.
+   */
+  void EmitFloat16ConversionBuiltins(bool use_float16_abi);
+
   /*!
    * \brief Get the number of elements in the given vector value.
    * \param vec The value, must be of a vector type.
@@ -476,10 +484,8 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   std::unique_ptr<llvm::DataLayout> data_layout_;
   // Internal metabuilder
   std::unique_ptr<llvm::MDBuilder> md_builder_;
-  // llvm target machine
-  llvm::TargetMachine* target_machine_{nullptr};
-  // llvm context
-  llvm::LLVMContext* ctx_{nullptr};
+  // llvm target info
+  LLVMTarget* llvm_target_{nullptr};
   // helpful data types
   llvm::Type* t_void_{nullptr};
   llvm::PointerType* t_void_p_{nullptr};
@@ -495,7 +501,7 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   llvm::MDNode* md_tbaa_root_{nullptr};
   llvm::MDNode* md_tbaa_alias_set_{nullptr};
   // modules to be linked.
-  std::vector<std::unique_ptr<llvm::Module> > link_modules_;
+  std::vector<std::unique_ptr<llvm::Module>> link_modules_;
   /*! \brief native vector bits of current targetx*/
   int native_vector_bits_{0};
   /*! \brief the storage scope of allocation */
@@ -516,6 +522,8 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   ExprDeepEqual deep_equal_;
   // binding of let variables. Enables duplicate var defs that map to same value
   std::unordered_map<Var, const LetNode*, ObjectPtrHash, ObjectPtrEqual> let_binding_;
+  // debug info for function being compiled
+  llvm::DISubprogram* di_subprogram_;
   // Cache potential common path ops to slightly improve lookup time.
   // global symbol table.
   OpAttrMap<TGlobalSymbol> op_attr_global_symbol_ = Op::GetAttrMap<TGlobalSymbol>("TGlobalSymbol");
@@ -525,6 +533,10 @@ class CodeGenLLVM : public ExprFunctor<llvm::Value*(const PrimExpr&)>,
   const Op& builtin_call_llvm_pure_intrin_ = builtin::call_llvm_pure_intrin();
   const Op& builtin_lookup_param_ = builtin::lookup_param();
   const Op& builtin_tvm_call_cpacked_lowered_ = builtin::tvm_call_cpacked_lowered();
+
+  void EmitDebugLocation();
+  void EmitDebugLocation(const Span& span);
+  void EmitDebugLocation(const StmtNode* op);
 
   /*! \brief Helper struct for debug infos. */
   struct DebugInfo {
@@ -567,5 +579,6 @@ void CodeGenLLVM::AddFunctionsOrdered(IterType begin, IterType end, ConvType pfu
 
 }  // namespace codegen
 }  // namespace tvm
-#endif  // LLVM_VERSION
+
+#endif  // TVM_LLVM_VERSION
 #endif  // TVM_TARGET_LLVM_CODEGEN_LLVM_H_

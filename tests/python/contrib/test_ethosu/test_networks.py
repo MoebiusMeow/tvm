@@ -45,12 +45,12 @@ MOBILENET_V2_URL = (
     "accel_type, model_url, workspace_size",
     [
         ("ethos-u65-256", MOBILENET_V1_URL, 1793376),
-        ("ethos-u65-256", MOBILENET_V2_URL, 2218160),
+        ("ethos-u65-256", MOBILENET_V2_URL, 2217152),
         ("ethos-u55-256", MOBILENET_V1_URL, 1793376),
-        ("ethos-u55-256", MOBILENET_V2_URL, 2218160),
-        ("ethos-u55-128", MOBILENET_V2_URL, 2218160),
-        ("ethos-u55-64", MOBILENET_V2_URL, 2218160),
-        ("ethos-u55-32", MOBILENET_V2_URL, 2218160),
+        ("ethos-u55-256", MOBILENET_V2_URL, 2217152),
+        ("ethos-u55-128", MOBILENET_V2_URL, 2217152),
+        ("ethos-u55-64", MOBILENET_V2_URL, 2217152),
+        ("ethos-u55-32", MOBILENET_V2_URL, 2217152),
     ],
 )
 def test_networks_without_usmp(accel_type, model_url, workspace_size):
@@ -199,4 +199,4 @@ def test_networks_with_usmp_and_cascader_with_striping(accel_type, model_url, wo
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    tvm.testing.main()

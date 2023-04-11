@@ -447,7 +447,7 @@ def padding_pattern_inlined(a: T.handle, b: T.handle) -> None:
 
 @T.prim_func
 def compacted_padding_pattern_inlined(
-    X: T.Buffer[(224, 224), "float32"], Y: T.Buffer[(224, 224), "float32"]
+    X: T.Buffer((224, 224), "float32"), Y: T.Buffer((224, 224), "float32")
 ) -> None:
     cache = T.alloc_buffer([224, 224], dtype="float32")
     for h, w in T.grid(224, 224):
@@ -561,10 +561,10 @@ def compacted_opaque_access_annotated_func(a: T.handle) -> None:
 
 @T.prim_func
 def sparse_read_cache(
-    A_data: T.Buffer[(819,), "float32"],
-    B: T.Buffer[(128,), "float32"],
-    A_indptr: T.Buffer[(129,), "int32"],
-    A_indices: T.Buffer[(819,), "int32"],
+    A_data: T.Buffer((819,), "float32"),
+    B: T.Buffer((128,), "float32"),
+    A_indptr: T.Buffer((129,), "int32"),
+    A_indices: T.Buffer((819,), "int32"),
 ) -> None:
     for i in T.serial(128):
         with T.block("rowsum_outer"):
@@ -594,10 +594,10 @@ def sparse_read_cache(
 
 @T.prim_func
 def compacted_sparse_read_cache(
-    A_data: T.Buffer[(819,), "float32"],
-    B: T.Buffer[(128,), "float32"],
-    A_indptr: T.Buffer[(129,), "int32"],
-    A_indices: T.Buffer[(819,), "int32"],
+    A_data: T.Buffer((819,), "float32"),
+    B: T.Buffer((128,), "float32"),
+    A_indptr: T.Buffer((129,), "int32"),
+    A_indices: T.Buffer((819,), "int32"),
 ) -> None:
     for i in T.serial(128):
         with T.block("rowsum_outer"):
@@ -626,7 +626,7 @@ def compacted_sparse_read_cache(
 
 
 @T.prim_func
-def narrow_shape(A: T.Buffer[(10,), "float32"], B: T.Buffer[(10,), "float32"]) -> None:
+def narrow_shape(A: T.Buffer((10,), "float32"), B: T.Buffer((10,), "float32")) -> None:
     B_cache = T.alloc_buffer(10, "float32")
     for j in T.serial(3):
         for k in T.serial(4):
@@ -638,7 +638,7 @@ def narrow_shape(A: T.Buffer[(10,), "float32"], B: T.Buffer[(10,), "float32"]) -
 
 
 @T.prim_func
-def compacted_narrow_shape(A: T.Buffer[(10,), "float32"], B: T.Buffer[(10,), "float32"]) -> None:
+def compacted_narrow_shape(A: T.Buffer((10,), "float32"), B: T.Buffer((10,), "float32")) -> None:
     # body
     # with T.block("root")
     B_cache = T.alloc_buffer([10], dtype="float32")
@@ -756,7 +756,7 @@ def test_compact_with_let_binding():
 def test_compact_spatial_tiled_pad_and_pooling():
     @T.prim_func
     def spatial_tiled_pad_and_pooling(
-        X: T.Buffer[(64, 112, 112), "int32"], Y: T.Buffer[(64, 56, 56), "int32"]
+        X: T.Buffer((64, 112, 112), "int32"), Y: T.Buffer((64, 56, 56), "int32")
     ) -> None:
         for h_o, w_o in T.grid(14, 14):
             with T.block():
@@ -796,7 +796,7 @@ def test_compact_spatial_tiled_pad_and_pooling():
 
     @T.prim_func
     def compacted_spatial_tiled_pad_and_pooling(
-        X: T.Buffer[(64, 112, 112), "int32"], Y: T.Buffer[(64, 56, 56), "int32"]
+        X: T.Buffer((64, 112, 112), "int32"), Y: T.Buffer((64, 56, 56), "int32")
     ) -> None:
         for h_o, w_o in T.grid(14, 14):
             with T.block():
@@ -854,7 +854,7 @@ def test_complex_case_1():
 
     # fmt: off
     @T.prim_func
-    def func(A: T.Buffer[(960, 770), "float32"], B: T.Buffer[(770, 2304), "float32"], C: T.Buffer[(960, 2304), "float32"]) -> None:
+    def func(A: T.Buffer((960, 770), "float32"), B: T.Buffer((770, 2304), "float32"), C: T.Buffer((960, 2304), "float32")) -> None:
         for bx in T.thread_binding(144, thread="blockIdx.x"):
             for vx in T.thread_binding(2, thread="vthread.x"):
                 for tx_p in T.thread_binding(256, thread="threadIdx.x"):
@@ -878,9 +878,9 @@ def test_complex_case_1():
                                 for k_1, i_3, j_3, k_2, i_4, j_4 in T.grid(1, 8, 1, 4, 2, 2):
                                     with T.block("update_update"):
                                         C[(((bx // 18 + 0) * 8 + tx_p // 32) * 8 + i_3) * 2 + i_4, ((bx % 18 * 2 + vx % 2) * 32 + tx_p % 32 + j_3) * 2 + j_4] = C[(((bx // 18 + 0) * 8 + tx_p // 32) * 8 + i_3) * 2 + i_4, ((bx % 18 * 2 + vx % 2) * 32 + tx_p % 32 + j_3) * 2 + j_4] + A_shared[(((bx // 18 + 0) * 8 + tx_p // 32) * 8 + i_3) * 2 + i_4, (k_0 + k_1) * 4 + k_2] * B_shared[(k_0 + k_1) * 4 + k_2, ((bx % 18 * 2 + vx % 2) * 32 + tx_p % 32 + j_3) * 2 + j_4]
-    
+
     @T.prim_func
-    def compacted_func(A: T.Buffer[(960, 770), "float32"], B: T.Buffer[(770, 2304), "float32"], C: T.Buffer[(960, 2304), "float32"]) -> None:
+    def compacted_func(A: T.Buffer((960, 770), "float32"), B: T.Buffer((770, 2304), "float32"), C: T.Buffer((960, 2304), "float32")) -> None:
         for bx in T.thread_binding(144, thread="blockIdx.x"):
             for vx in T.thread_binding(2, thread="vthread.x"):
                 for tx_p in T.thread_binding(256, thread="threadIdx.x"):
@@ -907,6 +907,106 @@ def test_complex_case_1():
     # fmt: on
 
     _check(func, compacted_func)
+
+
+def test_compact_dependent_buffer_indices():
+    """Check the upper bound on different indices could be independently estimated."""
+
+    @T.prim_func
+    def diagonal_access():
+        for i in range(8):
+            with T.block():
+                A = T.alloc_buffer((256, 256), "float32")
+                for j, k in T.grid(8, 8):
+                    with T.block():
+                        T.where(j * 8 + k < 60)
+                        A[i * 64 + j * 8 + k, i * 64 + j * 8 + k] = 1.0
+
+    @T.prim_func
+    def diagonal_access_compacted() -> None:
+        for i in T.serial(8):
+            with T.block():
+                A = T.alloc_buffer([60, 60], dtype="float32")
+                for j, k in T.grid(8, 8):
+                    with T.block():
+                        T.where(j * 8 + k < 60)
+                        A[j * 8 + k, j * 8 + k] = 1.0
+
+    _check(diagonal_access, diagonal_access_compacted)
+
+
+def test_compact_dependent_buffer_indices_of_packed_matmul():
+    """Check the outer dimension of the packed M-dim should be compacted to 1 wrt split condition."""
+
+    @T.prim_func
+    def nonuniform_packed_matmul_write_cache(
+        A: T.Buffer((1020, 64), "float32"),
+        B: T.Buffer((1000, 64), "float32"),
+        C: T.Buffer((1020, 1000), "float32"),
+    ):
+        for i0, i1 in T.grid(4, 1):
+            with T.block():
+                C_local2 = T.alloc_buffer([4, 1, 16, 1000, 16], dtype="float32", scope="local")
+                C_local1 = T.alloc_buffer([1020, 1000], dtype="float32", scope="local")
+                for ax0, ax1, ax2 in T.grid(255, 1000, 64):
+                    with T.block("matmul"):
+                        if ax2 == 0:
+                            C_local1[i0 * 255 + ax0, ax1] = 0
+                        C_local1[i0 * 255 + ax0, ax1] = (
+                            C_local1[i0 * 255 + ax0, ax1] + A[i0 * 255 + ax0, ax2] * B[ax1, ax2]
+                        )
+                for ax0, ax1 in T.grid(255, 1000):
+                    with T.block("st1"):
+                        C_local2[
+                            (i0 * 255 + ax0) // 255,
+                            0,
+                            (i0 * 255 + ax0) % 255 // 16,
+                            ax1,
+                            (i0 * 255 + ax0) % 255 % 16,
+                        ] = C_local1[i0 * 255 + ax0, ax1]
+                for ax0, ax1, ax2 in T.grid(16, 16, 1000):
+                    with T.block("st2"):
+                        T.where(ax0 * 16 + ax1 < 255)
+                        C[i0 * 255 + (ax0 * 16 + ax1), i1 * 1000 + ax2] = C_local2[
+                            (i0 * 255 + ax0 * 16 + ax1) // 255,
+                            0,
+                            (i0 * 255 + ax0 * 16 + ax1) % 255 // 16,
+                            i1 * 1000 + ax2,
+                            (i0 * 255 + ax0 * 16 + ax1) % 255 % 16,
+                        ]
+
+    @T.prim_func
+    def nonuniform_packed_matmul_write_cache_compacted(
+        A: T.Buffer((1020, 64), "float32"),
+        B: T.Buffer((1000, 64), "float32"),
+        C: T.Buffer((1020, 1000), "float32"),
+    ) -> None:
+        for i0, i1 in T.grid(4, 1):
+            with T.block():
+                C_local2 = T.alloc_buffer([1, 1, 15, 1000, 16], dtype="float32", scope="local")
+                C_local1 = T.alloc_buffer([255, 1000], dtype="float32", scope="local")
+                for ax0, ax1, ax2 in T.grid(255, 1000, 64):
+                    with T.block("matmul"):
+                        if ax2 == 0:
+                            C_local1[ax0, ax1] = 0
+                        C_local1[ax0, ax1] = (
+                            C_local1[ax0, ax1] + A[i0 * 255 + ax0, ax2] * B[ax1, ax2]
+                        )
+                for ax0, ax1 in T.grid(255, 1000):
+                    with T.block("st1"):
+                        C_local2[0, 0, ax0 // 16, ax1, ax0 % 16] = C_local1[ax0, ax1]
+                for ax0, ax1, ax2 in T.grid(16, 16, 1000):
+                    with T.block("st2"):
+                        T.where(ax0 * 16 + ax1 < 255)
+                        C[i0 * 255 + ax0 * 16 + ax1, ax2] = C_local2[
+                            (ax0 * 16 + ax1) // 255,
+                            0,
+                            (ax0 * 16 + ax1) % 255 // 16,
+                            ax2,
+                            (ax0 * 16 + ax1) % 255 % 16,
+                        ]
+
+    _check(nonuniform_packed_matmul_write_cache, nonuniform_packed_matmul_write_cache_compacted)
 
 
 if __name__ == "__main__":

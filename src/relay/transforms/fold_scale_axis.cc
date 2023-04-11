@@ -666,7 +666,7 @@ Expr ForwardFoldScaleAxis(const Expr& data) {
 class BackwardTransformer;
 
 /*!
- * \brief Preparation function for for pass scale backward.
+ * \brief Preparation function for pass scale backward.
  * \param call The call node.
  * \param in_messages Messages from the input containing allowed input scaling and whether
  *        positive scale is required.
@@ -919,7 +919,6 @@ Expr AddSubBackwardTransform(const Call& call, const Message& message, const Exp
     return Call(call->op, {lhs, rhs}, call->attrs, call->type_args);
   } else {
     LOG(FATAL) << "outstanding scale";
-    return Expr();
   }
 }
 
@@ -1104,7 +1103,6 @@ Expr BiasAddBackwardTransform(const Call& call, const Message& message, const Ex
     return Call(call->op, {lhs, rhs}, call->attrs, call->type_args);
   } else {
     LOG(FATAL) << "outstanding scale";
-    return Expr();
   }
 }
 

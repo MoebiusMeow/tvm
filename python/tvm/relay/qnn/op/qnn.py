@@ -27,10 +27,8 @@ from tvm.relay.op.nn.utils import get_pad_tuple2d
 from tvm.runtime import Object
 from tvm.target import Target
 from tvm.topi.nn.qnn import SQNN_DTYPE_TO_CODE
-from tvm.topi.x86.utils import target_has_sse41
+from tvm.target.x86 import target_has_sse41
 
-from ... import op as reg
-from ...op import OpPattern
 from . import _make, _requantize
 
 
@@ -720,6 +718,70 @@ def dense(
     )
 
 
+def contrib_dense_pack(
+    data,
+    weight,
+    input_zero_point,
+    kernel_zero_point,
+    input_scale,
+    kernel_scale,
+    kernel_layout="NC",
+    units=None,
+    out_dtype="int32",
+):
+    """Qnn contrib_dense_pack operator.
+    Applies a quantized linear transformation
+
+     .. math::
+
+     `Y = X * W`
+
+    If doing Per-channel quantization, qnn expects the kernel_zero_scale
+    and optionally the kernel_zero_point will be 1-D vectors instead of scalars.
+
+    Parameters
+    ----------
+    data : tvm.relay.Expr
+        The quantized input data to the operator.
+    weight : tvm.relay.Expr
+        The quantized weight expressions.
+    input_zero_point: tvm.relay.Expr
+        The input zero point.
+    kernel_zero_point: tvm.relay.Expr
+        The kernel zero point.
+    input_scale: tvm.relay.Expr
+        The scale for the input tensor.
+    kernel_scale: tvm.relay.Expr
+        The scale for the weight tensor. The scale for the weight tensor is
+        stored for access to this during relay. This information is not
+        needed in the pass pipeline after qnn.conv2d is lowered to the
+        sequence of steps as in nn.conv2d. See also input_scale in Requantize.
+    kernel_layout: str
+        The layout of weight, such as "NC" or "NC32n4c".
+    units : int, optional
+        Number of hidden units of the dense transformation.
+    out_dtype : str, optional
+        Specifies the output data type for mixed precision dense can be int32 or int16.
+
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The computed result.
+    """
+
+    return _make.contrib_dense_pack(
+        data,
+        weight,
+        input_zero_point,
+        kernel_zero_point,
+        input_scale,
+        kernel_scale,
+        kernel_layout,
+        units,
+        out_dtype,
+    )
+
+
 def mul(
     lhs,
     rhs,
@@ -963,6 +1025,44 @@ def erf(x, scale, zero_point, output_scale, output_zero_point):
     )
 
 
+# pylint: disable=redefined-builtin
+
+
+def abs(x, scale, zero_point, output_scale, output_zero_point):
+    """Quantized abs function.
+
+    Parameters
+    ----------
+    x : relay.Expr
+        The quantized input tensor.
+
+    scale: relay.Expr
+        The scale of the quantized expr.
+
+    zero_point: relay.Expr
+       The zero point of quantized expr.
+
+    output_scale: relay.Expr
+        The scale of the output quantized expr.
+
+    output_zero_point: relay.Expr
+       The zero point of output quantized expr.
+
+    Returns
+    -------
+    result : relay.Expr
+        The computed result.
+
+    """
+    return _make.abs(
+        x,
+        scale,
+        zero_point,
+        output_scale,
+        output_zero_point,
+    )
+
+
 def sigmoid(x, scale, zero_point, output_scale, output_zero_point):
     """Quantized sigmoid.
 
@@ -1172,11 +1272,6 @@ def batch_matmul(x, y, x_zero_point, y_zero_point, x_scale, y_scale, out_dtype="
         The computed result.
     """
     return _make.batch_matmul(x, y, x_zero_point, y_zero_point, x_scale, y_scale, out_dtype)
-
-
-# register fuse pattern for qnn ops
-reg.register_pattern("qnn.quantize", OpPattern.OPAQUE)
-reg.register_pattern("qnn.dequantize", OpPattern.OPAQUE)
 
 
 def leaky_relu(x, alpha, input_scale, input_zero_point, output_scale, output_zero_point):

@@ -132,6 +132,7 @@ def schedule_conv_NCHWc_cpu_common_int8(
     int8_elems=4,
     intrin=None,
     inline_fused=True,
+    mem_scope="global",
 ):
     """
     Defines the schedule for INT8 for Intel and ARM machines
@@ -139,7 +140,16 @@ def schedule_conv_NCHWc_cpu_common_int8(
     More details - https://software.intel.com/en-us/articles/
     lower-numerical-precision-deep-learning-inference-and-training
     """
-    reg_n, unroll_kw = cfg["tile_ow"].size[-1], cfg["unroll_kw"].val
+    if isinstance(cfg["tile_ow"], int):
+        reg_n = cfg["tile_ow"]
+    else:
+        reg_n = cfg["tile_ow"].size[-1]
+
+    if isinstance(cfg["unroll_kw"], (int, bool)):
+        unroll_kw = cfg["unroll_kw"]
+    else:
+        unroll_kw = cfg["unroll_kw"].val
+
     _, _, _, _, ic_bn = get_const_tuple(data_vec.shape)
     _, _, _, _, oc_bn = get_const_tuple(conv_out.shape)
 
@@ -162,7 +172,7 @@ def schedule_conv_NCHWc_cpu_common_int8(
         # data and kernel are not pre-computed, schedule layout transform here.
         # this should only be used by x86 conv2d_nchw, which is for
         # testing purpose.
-        batch, ic_chunk, ih, ic_block, iw = s[data_vec].op.axis
+        batch, ic_chunk, ih, iw, ic_block = s[data_vec].op.axis
         parallel_axis = s[data_vec].fuse(batch, ic_chunk, ih)
         s[data_vec].parallel(parallel_axis)
 
@@ -177,7 +187,7 @@ def schedule_conv_NCHWc_cpu_common_int8(
 
     # schedule 5-D NCHW[x]c conv
     C, O = conv_out, last
-    CC = s.cache_write(C, "global")
+    CC = s.cache_write(C, mem_scope)
 
     batch, oc_chunk, oh, ow, oc_block = s[C].op.axis
     ow_chunk, ow_block = s[C].split(ow, factor=reg_n)
@@ -270,6 +280,7 @@ def schedule_conv_NCHWc_cpu_1x1_int8(
     int8_elems=4,
     intrin=None,
     inline_fused=False,
+    mem_scope="global",
 ):
     """
     Defines the 1x1 conv schedule for INT8 for Intel and ARM machines
@@ -300,7 +311,7 @@ def schedule_conv_NCHWc_cpu_1x1_int8(
         # data and kernel are not pre-computed, schedule layout transform here.
         # this should only be used by x86 conv2d_nchw, which is for
         # testing purpose.
-        batch, ic_chunk, ih, ic_block, iw = s[data_vec].op.axis
+        batch, ic_chunk, ih, iw, ic_block = s[data_vec].op.axis
         parallel_axis = s[data_vec].fuse(batch, ic_chunk, ih)
         s[data_vec].parallel(parallel_axis)
 
@@ -314,7 +325,7 @@ def schedule_conv_NCHWc_cpu_1x1_int8(
         s[kernel_vec].parallel(parallel_axis)
 
     C, O = conv_out, last
-    CC = s.cache_write(C, "global")
+    CC = s.cache_write(C, mem_scope)
 
     batch, oc_chunk, oh, ow, oc_block = s[C].op.axis
     oh_outer, oh_inner = s[C].split(oh, factor=oh_factor)
@@ -477,7 +488,7 @@ def conv2d_alter_int8_common(
     pt, pl, pb, pr = get_pad_tuple(padding, (kh, kw))
 
     if data_tensor.dtype != data_dtype:
-        # How to convert data to int8
+        # How to convert data to uint8
         # Original --> C = A (conv) B
         # A and B are int8
         #   C = (A + 128 - 128) (conv) B
@@ -485,18 +496,20 @@ def conv2d_alter_int8_common(
         # where A' = A + 128
         # and 128 (conv) B is basically a reduce on CRS axis for weights.
         #
-        # How to convert data to uint8
+        # How to convert data to int8
         #   C = (A - 128 + 128) (conv) B
         #   C = (A' conv B) + 128 (conv) B
         # where A' = A - 128
-        if data_dtype == "int8":
-            # shift data to int8
+        if data_dtype == "uint8":
+            # shift data to uint8
             before_shift = relay.add
             after_shift = relay.subtract
+            pad_value = 128
         else:
-            # shift data to uint8
+            # shift data to int8
             before_shift = relay.subtract
             after_shift = relay.add
+            pad_value = -128
 
         if attrs["data_layout"] == "NHWC" and attrs["kernel_layout"] == "HWIO":
             adjust_shift = relay.sum(relay.cast(kernel, dtype="int32"), axis=(0, 1, 2))
@@ -514,7 +527,8 @@ def conv2d_alter_int8_common(
 
         # Do external padding as pad value has to be 128.
         if any(padding):
-            data = relay.nn.pad(data, pad_width=pad_width, pad_value=128)
+            data = relay.nn.pad(data, pad_width=pad_width, pad_value=pad_value)
+
         new_attrs["padding"] = (0, 0)
 
         # Multiply 128 to adjust shift.

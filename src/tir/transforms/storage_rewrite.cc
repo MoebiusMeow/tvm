@@ -100,10 +100,6 @@ class LinearAccessPatternFinder final : public StmtExprVisitor {
     StmtExprVisitor::VisitStmt_(op);
   }
 
-  void VisitStmt_(const StoreNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated StoreNode.  Please use BufferStoreNode instead.";
-  }
-
   void VisitStmt_(const BufferStoreNode* op) final {
     scope_.push_back(StmtEntry());
     // visit subexpr
@@ -127,10 +123,6 @@ class LinearAccessPatternFinder final : public StmtExprVisitor {
       e.stmt = op;
       linear_seq_.push_back(e);
     }
-  }
-
-  void VisitExpr_(const LoadNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated LoadNode.  Please use BufferLoadNode instead.";
   }
 
   void VisitExpr_(const BufferLoadNode* op) final {
@@ -159,17 +151,6 @@ class LinearAccessPatternFinder final : public StmtExprVisitor {
     if (e.touched.size() != 0) {
       e.stmt = op;
       linear_seq_.push_back(e);
-    }
-  }
-
-  void VisitExpr_(const CallNode* op) final {
-    if (op->op.same_as(builtin::address_of())) {
-      const BufferLoadNode* load = op->args[0].as<BufferLoadNode>();
-      for (const auto& index : load->indices) {
-        this->VisitExpr(index);
-      }
-    } else {
-      StmtExprVisitor::VisitExpr_(op);
     }
   }
 
@@ -280,8 +261,6 @@ class InplaceOpVerifier : public StmtExprVisitor {
       VisitStmt_(static_cast<const IfThenElseNode*>(stmt));
     } else if (stmt->IsInstance<WhileNode>()) {
       VisitStmt_(static_cast<const WhileNode*>(stmt));
-    } else if (stmt->IsInstance<StoreNode>()) {
-      VisitStmt_(static_cast<const StoreNode*>(stmt));
     } else if (stmt->IsInstance<BufferStoreNode>()) {
       VisitStmt_(static_cast<const BufferStoreNode*>(stmt));
     } else {
@@ -309,10 +288,6 @@ class InplaceOpVerifier : public StmtExprVisitor {
     }
   }
 
-  void VisitStmt_(const StoreNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated StoreNode.  Please use BufferStoreNode instead.";
-  }
-
   void VisitStmt_(const BufferStoreNode* op) final {
     ++mem_nest_;
     for (const auto& index : op->indices) {
@@ -335,10 +310,6 @@ class InplaceOpVerifier : public StmtExprVisitor {
       return;
     }
     StmtExprVisitor::VisitStmt_(op);
-  }
-
-  void VisitExpr_(const LoadNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated LoadNode.  Please use BufferLoadNode instead.";
   }
 
   void VisitExpr_(const BufferLoadNode* op) final {
@@ -414,16 +385,6 @@ class StoragePlanRewriter : public StmtExprMutator {
       return MakeAttach(attach_map_.at(nullptr), stmt);
     }
     return stmt;
-  }
-
-  Stmt VisitStmt_(const StoreNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated StoreNode.  Please use BufferStoreNode instead.";
-    return Stmt();
-  }
-
-  PrimExpr VisitExpr_(const LoadNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated LoadNode.  Please use BufferLoadNode instead.";
-    return PrimExpr();
   }
 
   template <typename Node>
@@ -583,8 +544,10 @@ class StoragePlanRewriter : public StmtExprMutator {
   };
 
   // Checks whether the storage_scope is especially tagged for a specific memory.
+  // Special memory is all combined into a single allocation.
   bool IsSpecialTaggedMemory(const StorageScope& scope) {
-    return scope.tag.length() != 0 && scope.tag != ".dyn" && scope.tag != ".workspace";
+    return scope.tag.length() != 0 && scope.tag != ".dyn" && scope.tag != ".workspace" &&
+           scope.tag != ".vtcm";
   }
 
   // Alllocate entry of node.
@@ -653,10 +616,26 @@ class StoragePlanRewriter : public StmtExprMutator {
           }
         }
 
-        if (e->allocs.size() == 1) {
+        bool all_allocs_identical = std::all_of(
+            e->allocs.begin() + 1, e->allocs.end(), [&](const AllocateNode* op) -> bool {
+              const AllocateNode* first = *e->allocs.begin();
+              if (op->dtype != first->dtype) {
+                return false;
+              }
+              if (op->extents.size() != first->extents.size()) {
+                return false;
+              }
+              ExprDeepEqual expr_equal;
+              for (size_t i = 0; i < op->extents.size(); i++) {
+                if (!expr_equal(op->extents[i], first->extents[i])) {
+                  return false;
+                }
+              }
+              return true;
+            });
+
+        if (all_allocs_identical) {
           // simply use the original allocation.
-          PrimExpr sz = foldl([](PrimExpr a, PrimExpr b, Span span) { return mul(a, b, span); },
-                              make_const(DataType::Int(32), 1), e->allocs[0]->extents);
           e->new_alloc = Allocate(e->alloc_var, alloc_type, e->allocs[0]->extents,
                                   e->allocs[0]->condition, Evaluate(0));
           if (IsSpecialTaggedMemory(e->scope)) {
@@ -899,7 +878,7 @@ class StoragePlanRewriter : public StmtExprMutator {
                          const StorageScope& scope, size_t const_nbits) {
     ICHECK(op != nullptr);
     // Re-use not successful, allocate a new buffer.
-    std::unique_ptr<StorageEntry> entry(new StorageEntry());
+    auto entry = std::make_unique<StorageEntry>();
     entry->attach_scope_ = attach_scope;
     entry->scope = scope;
     entry->elem_type = op->dtype.element_of();
@@ -1010,11 +989,11 @@ class StoragePlanRewriter : public StmtExprMutator {
   // symbolic free list, for non constant items.
   std::list<StorageEntry*> sym_free_list_;
   // The allocation attach map
-  std::unordered_map<const Object*, std::vector<StorageEntry*> > attach_map_;
+  std::unordered_map<const Object*, std::vector<StorageEntry*>> attach_map_;
   // The allocation assign map
   std::unordered_map<const VarNode*, StorageEntry*> alloc_map_;
   // The allocations
-  std::vector<std::unique_ptr<StorageEntry> > alloc_vec_;
+  std::vector<std::unique_ptr<StorageEntry>> alloc_vec_;
   // The buffer objects being remapped
   std::unordered_map<const BufferNode*, Buffer> buffer_remap_;
   // analyzer
@@ -1125,20 +1104,12 @@ class VectorTypeAccessChecker : public StmtExprVisitor {
     // track the parameter itself.
     for (Var buffer_var : params) {
       auto pointer_type = GetPointerType(buffer_var->type_annotation);
-      if (pointer_type.first && (buffer_map.count(buffer_var) == 0)) {
-        DataType dtype = pointer_type.second;
+      if (pointer_type.has_value() && (buffer_map.count(buffer_var) == 0)) {
+        DataType dtype = pointer_type.value();
         PrimExpr extent = 0;
         OnArrayDeclaration(buffer_var, dtype, extent, BufferVarInfo::kPrimFuncBufferMap);
       }
     }
-  }
-
-  void VisitExpr_(const LoadNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated LoadNode.  Please use BufferLoadNode instead.";
-  }
-
-  void VisitStmt_(const StoreNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated StoreNode.  Please use BufferStoreNode instead.";
   }
 
   void VisitExpr_(const BufferLoadNode* op) final {
@@ -1190,8 +1161,8 @@ class VectorTypeAccessChecker : public StmtExprVisitor {
   void HandleLetNode(Var let_var) {
     if (let_var->dtype.is_handle()) {
       auto pointer_type = GetPointerType(let_var->type_annotation);
-      if (pointer_type.first) {
-        OnArrayDeclaration(let_var, pointer_type.second, 0, BufferVarInfo::kLetNode);
+      if (pointer_type.has_value()) {
+        OnArrayDeclaration(let_var, pointer_type.value(), 0, BufferVarInfo::kLetNode);
       } else if (allow_untyped_pointers_) {
         OnArrayDeclaration(let_var, let_var->dtype, 0, BufferVarInfo::kLetNode);
       } else {
@@ -1398,16 +1369,6 @@ class VectorTypeRewriter : public StmtExprMutator {
     }
   }
 
-  PrimExpr VisitExpr_(const LoadNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated LoadNode.  Please use BufferLoadNode instead.";
-    return PrimExpr();
-  }
-
-  Stmt VisitStmt_(const StoreNode* op) final {
-    LOG(FATAL) << "Unexpected use of deprecated StoreNode.  Please use BufferStoreNode instead.";
-    return Stmt();
-  }
-
   template <typename Node>
   Node VisitBufferAccess(Node node) {
     if (!rewrite_indices_) {
@@ -1459,6 +1420,17 @@ class VectorTypeRewriter : public StmtExprMutator {
   Stmt VisitStmt_(const BufferStoreNode* op) final {
     auto node = Downcast<BufferStore>(StmtExprMutator::VisitStmt_(op));
     return VisitBufferAccess(std::move(node));
+  }
+
+  Stmt VisitStmt_(const LetStmtNode* op) final {
+    auto it = rewrite_map_.find(op->var.get());
+    PrimExpr value = this->VisitExpr(op->value);
+    Stmt body = this->VisitStmt(op->body);
+    Var var = (it == rewrite_map_.end()) ? op->var : it->second.new_buffer_var;
+    if (var.same_as(op->var) && value.same_as(op->value) && body.same_as(op->body)) {
+      return GetRef<Stmt>(op);
+    }
+    return LetStmt(var, value, body);
   }
 
   Buffer RemapBuffer(Buffer buf) {
@@ -1572,7 +1544,7 @@ class VectorTypeRewriter : public StmtExprMutator {
     auto* n = func.CopyOnWrite();
 
     // Remap any remaining references to the old buffer variables
-    Map<Var, PrimExpr> var_remap;
+    Map<Var, Var> var_remap;
     for (const auto& pair : rewrite_map_) {
       const auto& info = pair.second;
       var_remap.Set(info.old_buffer_var, info.new_buffer_var);

@@ -46,6 +46,8 @@ class StmtNode : public Object {
   StmtNode() = default;
   explicit StmtNode(Span span) : span(span) {}
 
+  TVM_OBJECT_ENABLE_SCRIPT_PRINTER();
+
   static constexpr const char* _type_key = "tir.Stmt";
   static constexpr const bool _type_has_method_sequal_reduce = true;
   static constexpr const bool _type_has_method_shash_reduce = true;
@@ -102,6 +104,7 @@ class LetStmt : public Stmt {
   TVM_DLL LetStmt(Var var, PrimExpr value, Stmt body, Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(LetStmt, Stmt, LetStmtNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(LetStmtNode);
 };
 
 /*!
@@ -158,6 +161,7 @@ class AttrStmt : public Stmt {
   TVM_DLL AttrStmt(ObjectRef node, String attr_key, PrimExpr value, Stmt body, Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(AttrStmt, Stmt, AttrStmtNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(AttrStmtNode);
 };
 
 /*!
@@ -206,71 +210,7 @@ class AssertStmt : public Stmt {
   TVM_DLL AssertStmt(PrimExpr condition, PrimExpr message, Stmt body, Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(AssertStmt, Stmt, AssertStmtNode);
-};
-
-/*!
- * \brief Store value to the buffer.
- *
- *  Equivalent to ((DType*)buffer_var)[index] = value.
- *  where DType is the type specified by type().element_of().
- *
- *  For example, if type = float32x3, then the store will corresponds to
- *
- * \code
- *
- *  auto buffer = static_cast<float*>(buffer_var);
- *  buffer[index.v0] = value.v0;
- *  buffer[index.v1] = value.v1;
- *  buffer[index.v2] = value.v2;
- *
- * \endcode
- * \sa LoadNode
- */
-class StoreNode : public StmtNode {
- public:
-  /*! \brief The buffer variable. */
-  Var buffer_var;
-  /*! \brief The value to be stored. */
-  PrimExpr value;
-  /*! \brief The index locations to be stored. */
-  PrimExpr index;
-  /*! \brief The predicate to mask which lanes would be stored. */
-  PrimExpr predicate;
-
-  void VisitAttrs(AttrVisitor* v) {
-    v->Visit("buffer_var", &buffer_var);
-    v->Visit("value", &value);
-    v->Visit("index", &index);
-    v->Visit("predicate", &predicate);
-    v->Visit("span", &span);
-  }
-
-  bool SEqualReduce(const StoreNode* other, SEqualReducer equal) const {
-    return equal(buffer_var, other->buffer_var) && equal(value, other->value) &&
-           equal(index, other->index) && equal(predicate, other->predicate);
-  }
-
-  void SHashReduce(SHashReducer hash_reduce) const {
-    hash_reduce(buffer_var);
-    hash_reduce(value);
-    hash_reduce(index);
-    hash_reduce(predicate);
-  }
-
-  static constexpr const char* _type_key = "tir.Store";
-  TVM_DECLARE_FINAL_OBJECT_INFO(StoreNode, StmtNode);
-};
-
-/*!
- * \brief Managed reference to StoreNode.
- * \sa StoreNode
- */
-class Store : public Stmt {
- public:
-  TVM_DLL Store(Var buffer_var, PrimExpr value, PrimExpr index, PrimExpr predicate,
-                Span span = Span());
-
-  TVM_DEFINE_OBJECT_REF_METHODS(Store, Stmt, StoreNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(AssertStmtNode);
 };
 
 /*!
@@ -442,6 +382,7 @@ class ProducerStore : public Stmt {
                         Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(ProducerStore, Stmt, ProducerStoreNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ProducerStoreNode);
 };
 
 /*!
@@ -505,6 +446,7 @@ class ProducerRealize : public Stmt {
                           String storage_scope = "", Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(ProducerRealize, Stmt, ProducerRealizeNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ProducerRealizeNode);
 };
 
 /*!
@@ -679,6 +621,42 @@ class AllocateConst : public Stmt {
                         Map<String, ObjectRef> annotations = Map<String, ObjectRef>(),
                         Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(AllocateConst, Stmt, AllocateConstNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(AllocateConstNode);
+};
+
+/*! \brief Declare a buffer that can be used in the body */
+class DeclBufferNode : public StmtNode {
+ public:
+  /*! \brief The buffer being declared */
+  Buffer buffer;
+  /*! \brief The body to be executed */
+  Stmt body;
+
+  void VisitAttrs(AttrVisitor* v) {
+    v->Visit("buffer", &buffer);
+    v->Visit("body", &body);
+    v->Visit("span", &span);
+  }
+
+  bool SEqualReduce(const DeclBufferNode* other, SEqualReducer equal) const {
+    return equal(buffer, other->buffer) && equal(body, other->body);
+  }
+
+  void SHashReduce(SHashReducer hash_reduce) const {
+    hash_reduce(buffer);
+    hash_reduce(body);
+  }
+
+  static constexpr const char* _type_key = "tir.DeclBuffer";
+  TVM_DECLARE_FINAL_OBJECT_INFO(DeclBufferNode, StmtNode);
+};
+
+/*! \brief Managed reference to DeclBufferNode */
+class DeclBuffer : public Stmt {
+ public:
+  TVM_DLL DeclBuffer(Buffer buffer, Stmt body, Span span = Span());
+  TVM_DEFINE_OBJECT_REF_METHODS(DeclBuffer, Stmt, DeclBufferNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(DeclBufferNode);
 };
 
 /*!
@@ -756,19 +734,33 @@ class SeqStmt : public Stmt {
    public:
     explicit Flattener(Array<Stmt>* seq) : seq_(seq) {}
 
-    void operator()(size_t i, const Stmt& stmt) const {
-      if (!stmt.defined()) return;
-      if (auto* op = stmt.as<SeqStmtNode>()) {
-        operator()(0, op->seq);
-      } else {
-        seq_->push_back(stmt);
-      }
-    }
-
     template <typename T>
-    void operator()(size_t i, const T& seq) const {
-      for (auto v : seq) {
-        this->operator()(0, v);
+    void operator()(size_t i, const T& stmt_or_seq) const {
+      if constexpr (std::is_base_of_v<ObjectRef, T>) {
+        // Early bail-out, applicable to any ObjectRef
+        if (!stmt_or_seq.defined()) return;
+      }
+
+      if constexpr (std::is_same_v<T, SeqStmt>) {
+        // No need for dynamic type-checking if the static type is a
+        // SeqStmt.
+        (*this)(0, stmt_or_seq->seq);
+      } else if constexpr (std::is_base_of_v<T, SeqStmt>) {
+        // Dynamic type-checking for a SeqStmt that could be
+        // flattened.
+        if (auto* op = stmt_or_seq.template as<SeqStmtNode>()) {
+          operator()(0, op->seq);
+        } else {
+          seq_->push_back(stmt_or_seq);
+        }
+      } else if constexpr (std::is_base_of_v<Stmt, T>) {
+        // Any other Stmt type just gets appended.
+        seq_->push_back(stmt_or_seq);
+      } else {
+        // Anything else is treated as an iterable of Stmt.
+        for (auto v : stmt_or_seq) {
+          this->operator()(0, v);
+        }
       }
     }
 
@@ -777,6 +769,7 @@ class SeqStmt : public Stmt {
   };
 
   TVM_DEFINE_OBJECT_REF_METHODS(SeqStmt, Stmt, SeqStmtNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(SeqStmtNode);
 };
 
 /*!
@@ -789,7 +782,7 @@ class IfThenElseNode : public StmtNode {
   /*! \brief The branch to be executed when condition is true. */
   Stmt then_case;
   /*! \brief The branch to be executed when condition is false, can be null. */
-  Stmt else_case;
+  Optional<Stmt> else_case;
 
   void VisitAttrs(AttrVisitor* v) {
     v->Visit("condition", &condition);
@@ -819,10 +812,11 @@ class IfThenElseNode : public StmtNode {
  */
 class IfThenElse : public Stmt {
  public:
-  TVM_DLL IfThenElse(PrimExpr condition, Stmt then_case, Stmt else_case = Stmt(),
+  TVM_DLL IfThenElse(PrimExpr condition, Stmt then_case, Optional<Stmt> else_case = NullOpt,
                      Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(IfThenElse, Stmt, IfThenElseNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(IfThenElseNode);
 };
 
 /*!
@@ -862,6 +856,7 @@ class Evaluate : public Stmt {
   explicit Evaluate(int value, Span span = Span()) : Evaluate(PrimExpr(value), span) {}
 
   TVM_DEFINE_OBJECT_REF_METHODS(Evaluate, Stmt, EvaluateNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(EvaluateNode);
 };
 
 /*!
@@ -1019,6 +1014,7 @@ class While : public Stmt {
   TVM_DLL While(PrimExpr condition, Stmt body, Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(While, Stmt, WhileNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(WhileNode);
 };
 
 /*!
@@ -1063,6 +1059,7 @@ class Prefetch : public Stmt {
   TVM_DLL explicit Prefetch(Buffer buffer, Array<Range> bounds, Span span = Span());
 
   TVM_DEFINE_NOTNULLABLE_OBJECT_REF_METHODS(Prefetch, Stmt, PrefetchNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(PrefetchNode);
 };
 
 /*!
@@ -1167,6 +1164,7 @@ class MatchBufferRegion : public ObjectRef {
   TVM_DLL explicit MatchBufferRegion(Buffer buffer, BufferRegion source);
 
   TVM_DEFINE_OBJECT_REF_METHODS(MatchBufferRegion, ObjectRef, MatchBufferRegionNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(MatchBufferRegionNode);
 };
 
 /*!
@@ -1513,6 +1511,9 @@ constexpr const char* software_pipeline_async_stages = "software_pipeline_async_
 /*! \brief Mark the buffers which is const access and can be transformed layout. */
 constexpr const char* layout_free_buffers = "layout_free_buffers";
 
+/*! \brief Mark the local stage for the shared memory access should be added. */
+constexpr const char* manifest_shared_memory_local_stage = "tir.manifest_shared_memory_local_stage";
+
 /*! \brief Mark the tiling structure of blocks that are applied by rule Multi-Level-Tiling */
 constexpr const char* meta_schedule_tiling_structure = "meta_schedule.tiling_structure";
 
@@ -1557,10 +1558,44 @@ constexpr const char* meta_schedule_layout_rewrite_preproc = "meta_schedule.layo
 constexpr const char* meta_schedule_auto_tensorize_init = "meta_schedule.auto_tensorize_init";
 
 /*!
+ * \brief Mark that the block need to add predicate for block var bounds during lowering
+ */
+constexpr const char* require_block_var_bound_predicate = "require_bound_predicate";
+
+/*! \brief Mark that tensor core is enabled in the PrimExpr */
+constexpr const char* meta_schedule_tensor_core_enabled = "meta_schedule.tensor_core_enabled";
+
+/*!
+ * \brief Mark a block as generated by cache_read or cache_write block.
+ * 0 means cache_read; 1 means cache_write.
+ * \sa meta_schedule_cache_type_read
+ * \sa meta_schedule_cache_type_write
+ */
+constexpr const char* meta_schedule_cache_type = "meta_schedule.cache_type";
+
+/*! \sa meta_schedule_cache_type */
+constexpr const int meta_schedule_cache_type_read = 0;
+
+/*! \sa meta_schedule_cache_type */
+constexpr const int meta_schedule_cache_type_write = 1;
+
+/*! \brief Mark auto copy for memhammer */
+constexpr const char* auto_copy = "auto_copy";
+
+/*! \brief Mark local stage constraint on data copy */
+constexpr const char* local_stage = "local_stage";
+
+/*! \brief Mark vectorization length constraint on block */
+constexpr const char* vector_bytes = "vector_bytes";
+
+/*!
  * \brief Mark that a block is executed by a warp. This implies the extend of threadIdx.x is
  * warp size.
  */
 constexpr const char* warp_execution = "warp_execution";
+
+/*! \brief Mark that a block is disallowed in auto inline. */
+constexpr const char* meta_schedule_inline_rule = "meta_schedule.inline_rule";
 
 /*!
  * \brief Check if attr_key is a pragma key extension
@@ -1598,7 +1633,6 @@ inline const char* ForKind2String(ForKind t) {
       return "thread_binding";
   }
   LOG(FATAL) << "Unknown ForKind" << t;
-  return "Unknown";
 }
 
 }  // namespace tir

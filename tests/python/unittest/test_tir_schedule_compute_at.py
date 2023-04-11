@@ -793,7 +793,7 @@ def read_out_of_bound_after_compute_at(a: T.handle, c: T.handle) -> None:
 
 
 @T.prim_func
-def multi_reduction(A: T.Buffer[(16, 16), "float32"], C: T.Buffer[(), "float32"]):
+def multi_reduction(A: T.Buffer((16, 16), "float32"), C: T.Buffer((), "float32")):
     B = T.alloc_buffer((16, ), dtype="float32")
     for i, k in T.grid(16, 16):
         with T.block("B"):
@@ -811,8 +811,8 @@ def multi_reduction(A: T.Buffer[(16, 16), "float32"], C: T.Buffer[(), "float32"]
 
 @T.prim_func
 def multi_reduction_after_compute_at(
-    A: T.Buffer[(16, 16), "float32"],
-    C:T.Buffer[(), "float32"],
+    A: T.Buffer((16, 16), "float32"),
+    C:T.Buffer((), "float32"),
 ):
     B = T.alloc_buffer((16, ), dtype="float32")
     for k in T.grid(16):
@@ -879,9 +879,9 @@ def tiled_pooling_read_cache_after_compute_at(a: T.handle, b: T.handle) -> None:
                     cache[h + kh - 1, w + kw - 1], 0.0, dtype="float32"))
 
 @T.prim_func
-def non_uniform_tiled_conv(x: T.Buffer[(1, 3, 100, 100), "float32"],
-                           w: T.Buffer[(16, 3, 3, 3), "float32"],
-                           y: T.Buffer[(1, 16, 98, 98), "float32"]) -> None:
+def non_uniform_tiled_conv(x: T.Buffer((1, 3, 100, 100), "float32"),
+                           w: T.Buffer((16, 3, 3, 3), "float32"),
+                           y: T.Buffer((1, 16, 98, 98), "float32")) -> None:
     x_global = T.alloc_buffer([1, 3, 100, 100], dtype="float32")
     for ax0, ax1, ax2, ax3 in T.grid(1, 3, 100, 100):
         with T.block("cache"):
@@ -901,9 +901,9 @@ def non_uniform_tiled_conv(x: T.Buffer[(1, 3, 100, 100), "float32"],
                 x_global[nn, cc // 16 * 3 + rc, hh + rh, ww + rw] * w[cc, rc, rh, rw]
 
 @T.prim_func
-def non_uniform_tiled_conv_after_compute_at(x: T.Buffer[(1, 3, 100, 100), "float32"],
-                                            w: T.Buffer[(16, 3, 3, 3), "float32"],
-                                            y: T.Buffer[(1, 16, 98, 98), "float32"]) -> None:
+def non_uniform_tiled_conv_after_compute_at(x: T.Buffer((1, 3, 100, 100), "float32"),
+                                            w: T.Buffer((16, 3, 3, 3), "float32"),
+                                            y: T.Buffer((1, 16, 98, 98), "float32")) -> None:
     x_global = T.alloc_buffer([1, 3, 100, 100], dtype="float32")
     for h_o, w_o in T.grid(7, 7):
         for ax0, ax1, ax2 in T.grid(3, 17, 17):
@@ -928,9 +928,9 @@ def non_uniform_tiled_conv_after_compute_at(x: T.Buffer[(1, 3, 100, 100), "float
                     x_global[nn, cc // 16 * 3 + rc, hh + rh, ww + rw] * w[cc, rc, rh, rw]
 
 @T.prim_func
-def concat_two_elemwise(x: T.Buffer[(16,), "float32"],
-                        y: T.Buffer[(8,), "float32"],
-                        T_concat: T.Buffer[(24,), "float32"]) -> None:
+def concat_two_elemwise(x: T.Buffer((16,), "float32"),
+                        y: T.Buffer((8,), "float32"),
+                        T_concat: T.Buffer((24,), "float32")) -> None:
     T_add_1 = T.alloc_buffer([16], dtype="float32")
     T_add_2 = T.alloc_buffer([8], dtype="float32")
     for i in T.serial(16):
@@ -947,9 +947,9 @@ def concat_two_elemwise(x: T.Buffer[(16,), "float32"],
             T_concat[ax] = T.if_then_else(16 <= ax, T_add_2[ax - 16], T_add_1[ax], dtype="float32")
 
 @T.prim_func
-def concat_two_elemwise_after_compute_at(x: T.Buffer[(16,), "float32"],
-                                         y: T.Buffer[(8,), "float32"],
-                                         T_concat: T.Buffer[(24,), "float32"]) -> None:
+def concat_two_elemwise_after_compute_at(x: T.Buffer((16,), "float32"),
+                                         y: T.Buffer((8,), "float32"),
+                                         T_concat: T.Buffer((24,), "float32")) -> None:
     T_add_1 = T.alloc_buffer([16], dtype="float32")
     T_add_2 = T.alloc_buffer([8], dtype="float32")
     for i in T.serial(24):
@@ -996,7 +996,7 @@ def floordiv_and_floormod_indices_after_reverse_compute_at(a: T.handle, b: T.han
 
 
 @T.prim_func
-def tiled_repeat_op(x: T.Buffer[(4,), "float32"], T_repeat: T.Buffer[(64,), "float32"]) -> None:
+def tiled_repeat_op(x: T.Buffer((4,), "float32"), T_repeat: T.Buffer((64,), "float32")) -> None:
     T_add = T.alloc_buffer([4], dtype="float32")
     for i0 in T.serial(4):
         with T.block("T_add"):
@@ -1008,7 +1008,7 @@ def tiled_repeat_op(x: T.Buffer[(4,), "float32"], T_repeat: T.Buffer[(64,), "flo
             T_repeat[ax0] = T_add[ax0 // 16]
 
 @T.prim_func
-def tiled_repeat_op_after_compute_at(x: T.Buffer[(4,), "float32"], T_repeat: T.Buffer[(64,), "float32"]) -> None:
+def tiled_repeat_op_after_compute_at(x: T.Buffer((4,), "float32"), T_repeat: T.Buffer((64,), "float32")) -> None:
     T_add = T.alloc_buffer([4], dtype="float32")
     for i0_0 in T.serial(8):
         with T.block("T_add"):
@@ -1020,7 +1020,7 @@ def tiled_repeat_op_after_compute_at(x: T.Buffer[(4,), "float32"], T_repeat: T.B
                 T_repeat[ax0] = T_add[ax0 // 16]
 
 @T.prim_func
-def static_bound(A: T.Buffer[(32, 1), "float32"], C: T.Buffer[(32, 1), "float32"]) -> None:
+def static_bound(A: T.Buffer((32, 1), "float32"), C: T.Buffer((32, 1), "float32")) -> None:
     B = T.alloc_buffer((32, 1), "float32")
     for i, j in T.grid(32, 1):
         with T.block("B"):
@@ -1035,7 +1035,7 @@ def static_bound(A: T.Buffer[(32, 1), "float32"], C: T.Buffer[(32, 1), "float32"
             C[vi, vj] = B[vi, vj] + 1.0
 
 @T.prim_func
-def static_bound_after_compute_at(A: T.Buffer[(32, 1), "float32"], C: T.Buffer[(32, 1), "float32"]) -> None:
+def static_bound_after_compute_at(A: T.Buffer((32, 1), "float32"), C: T.Buffer((32, 1), "float32")) -> None:
     B = T.alloc_buffer((32, 1), "float32")
     for i in range(32):
         for ax0, ax1 in T.grid(1, 1):
@@ -1174,6 +1174,40 @@ def test_compute_at_tiled_repeat_op(use_block_name):
     verify_trace_roundtrip(sch=sch, mod=tiled_repeat_op)
 
 
+def test_compute_at_rev_iter():
+    @T.prim_func
+    def before(X: T.Buffer[(10, 10), "float32"], Z: T.Buffer[(10, 10), "float32"]):
+        Y = T.alloc_buffer([10, 10], "float32")
+        for i, j in T.grid(10, 10):
+            with T.block("b0"):
+                vi, vj = T.axis.remap("SS", [i, j])
+                Y[9 - vi, 9 - vj] = X[vi, vj] + 1.0
+        for i, j in T.grid(10, 10):
+            with T.block("b1"):
+                vi, vj = T.axis.remap("SS", [i, j])
+                Z[vi, vj] = Y[vj, vi] + 2.0
+
+    @T.prim_func
+    def after(X: T.Buffer[(10, 10), "float32"], Z: T.Buffer[(10, 10), "float32"]):
+        Y = T.alloc_buffer([10, 10], "float32")
+        for i in range(10):
+            for j in range(10):
+                with T.block("b0"):
+                    vi = T.axis.spatial(10, j)
+                    vj = T.axis.spatial(10, 9 - i)
+                    Y[9 - vi, 9 - vj] = X[vi, vj] + 1.0
+            for j in range(10):
+                with T.block("b1"):
+                    vi, vj = T.axis.remap("SS", [i, j])
+                    Z[vi, vj] = Y[vj, vi] + 2.0
+
+    sch = tir.Schedule(before, debug_mask="all")
+    axis = sch.get_loops(sch.get_block("b1"))[0]
+    sch.compute_at(sch.get_block("b0"), axis)
+    tvm.ir.assert_structural_equal(after, sch.mod["main"])
+    verify_trace_roundtrip(sch=sch, mod=before)
+
+
 def test_reverse_compute_at_tiled(use_block_name):
     sch = tir.Schedule(tiled, debug_mask="all")
     block = sch.get_block("C")
@@ -1251,7 +1285,7 @@ def test_compute_at_simplify_static_bound(use_block_name):
 def test_compute_at_non_perfect_channel_group(use_block_name):
     @T.prim_func
     def grouped_channel_bias(
-        X: T.Buffer[(720, 8, 8), "float32"], Y: T.Buffer[(720, 8, 8), "float32"]
+        X: T.Buffer((720, 8, 8), "float32"), Y: T.Buffer((720, 8, 8), "float32")
     ):
         B = T.alloc_buffer([45], dtype="float32", scope="")
         for i in T.grid(45):
@@ -1266,7 +1300,7 @@ def test_compute_at_non_perfect_channel_group(use_block_name):
 
     @T.prim_func
     def grouped_channel_bias_non_perfect_tiled(
-        X: T.Buffer[(720, 8, 8), "float32"], Y: T.Buffer[(720, 8, 8), "float32"]
+        X: T.Buffer((720, 8, 8), "float32"), Y: T.Buffer((720, 8, 8), "float32")
     ):
         B = T.alloc_buffer([45], dtype="float32")
         for c_o in range(2):
@@ -1351,6 +1385,250 @@ def test_compute_at_int64_loop(use_block_name):
     i, _ = sch.get_loops(block_d)
     sch.compute_at(block_c, i)
     verify_trace_roundtrip(sch=sch, mod=mod)
+
+
+def test_compute_at_to_index():
+    @T.prim_func
+    def multi_producers_conv(
+        data: T.Buffer((1, 3, 224, 224), "int8"),
+        w: T.Buffer((16, 3, 7, 7), "int8"),
+        conv: T.Buffer((1, 16, 112, 112), "int32"),
+    ) -> None:
+        pad = T.alloc_buffer([1, 3, 230, 230], dtype="int8")
+        wbuf = T.alloc_buffer([16, 3, 7, 7], dtype="int8")
+        for i0, i1, i2, i3 in T.grid(1, 3, 230, 230):
+            with T.block("pad"):
+                i0_1, i1_1, i2_1, i3_1 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+                T.reads(data[i0_1, i1_1, i2_1 - 3, i3_1 - 3])
+                T.writes(pad[i0_1, i1_1, i2_1, i3_1])
+                pad[i0_1, i1_1, i2_1, i3_1] = T.if_then_else(
+                    3 <= i2_1 and i2_1 < 227 and 3 <= i3_1 and i3_1 < 227,
+                    data[i0_1, i1_1, i2_1 - 3, i3_1 - 3],
+                    T.int8(0),
+                    dtype="int8",
+                )
+        for i0 in T.serial(1):
+            for ax0, ax1, ax2, ax3 in T.grid(16, 3, 7, 7):
+                with T.block("wbuf"):
+                    v0, v1, v2, v3 = T.axis.remap("SSSS", [ax0, ax1, ax2, ax3])
+                    T.reads(w[v0, v1, v2, v3])
+                    T.writes(wbuf[v0, v1, v2, v3])
+                    wbuf[v0, v1, v2, v3] = w[v0, v1, v2, v3]
+            for i1, i2, i3, i4, i5, i6 in T.grid(16, 112, 112, 3, 7, 7):
+                with T.block("conv"):
+                    nn, ff, yy, xx, rc, ry, rx = T.axis.remap(
+                        "SSSSRRR", [i0, i1, i2, i3, i4, i5, i6]
+                    )
+                    T.reads(pad[nn, rc, yy * 2 + ry, xx * 2 + rx], wbuf[ff, rc, ry, rx])
+                    T.writes(conv[nn, ff, yy, xx])
+                    with T.init():
+                        conv[nn, ff, yy, xx] = 0
+                    conv[nn, ff, yy, xx] = conv[nn, ff, yy, xx] + T.cast(
+                        pad[nn, rc, yy * 2 + ry, xx * 2 + rx], "int32"
+                    ) * T.cast(wbuf[ff, rc, ry, rx], "int32")
+
+    @T.prim_func
+    def multi_producers_after_compute_at(
+        data: T.Buffer((1, 3, 224, 224), "int8"),
+        w: T.Buffer((16, 3, 7, 7), "int8"),
+        conv: T.Buffer((1, 16, 112, 112), "int32"),
+    ) -> None:
+        pad = T.alloc_buffer([1, 3, 230, 230], dtype="int8")
+        wbuf = T.alloc_buffer([16, 3, 7, 7], dtype="int8")
+        for i0 in T.serial(1):
+            for ax0, ax1, ax2 in T.grid(3, 229, 229):
+                with T.block("pad"):
+                    i0_1 = T.axis.spatial(1, 0)
+                    i1_1 = T.axis.spatial(3, ax0)
+                    i2_1 = T.axis.spatial(230, ax1)
+                    i3_1 = T.axis.spatial(230, ax2)
+                    T.reads(data[i0_1, i1_1, i2_1 - 3, i3_1 - 3])
+                    T.writes(pad[i0_1, i1_1, i2_1, i3_1])
+                    pad[i0_1, i1_1, i2_1, i3_1] = T.if_then_else(
+                        3 <= i2_1 and i2_1 < 227 and 3 <= i3_1 and i3_1 < 227,
+                        data[i0_1, i1_1, i2_1 - 3, i3_1 - 3],
+                        T.int8(0),
+                        dtype="int8",
+                    )
+            for ax0, ax1, ax2, ax3 in T.grid(16, 3, 7, 7):
+                with T.block("wbuf"):
+                    v0, v1, v2, v3 = T.axis.remap("SSSS", [ax0, ax1, ax2, ax3])
+                    T.reads(w[v0, v1, v2, v3])
+                    T.writes(wbuf[v0, v1, v2, v3])
+                    wbuf[v0, v1, v2, v3] = w[v0, v1, v2, v3]
+            for i1, i2, i3, i4, i5, i6 in T.grid(16, 112, 112, 3, 7, 7):
+                with T.block("conv"):
+                    nn, ff, yy, xx, rc, ry, rx = T.axis.remap(
+                        "SSSSRRR", [i0, i1, i2, i3, i4, i5, i6]
+                    )
+                    T.reads(pad[nn, rc, yy * 2 + ry, xx * 2 + rx], wbuf[ff, rc, ry, rx])
+                    T.writes(conv[nn, ff, yy, xx])
+                    with T.init():
+                        conv[nn, ff, yy, xx] = 0
+                    conv[nn, ff, yy, xx] = conv[nn, ff, yy, xx] + T.cast(
+                        pad[nn, rc, yy * 2 + ry, xx * 2 + rx], "int32"
+                    ) * T.cast(wbuf[ff, rc, ry, rx], "int32")
+
+    sch = tir.Schedule(multi_producers_conv, debug_mask="all")
+    block_c = sch.get_block("pad")
+    axis = sch.get_loops("conv")[0]
+    sch.compute_at(block_c, axis, index=-2)
+    tvm.ir.assert_structural_equal(multi_producers_after_compute_at, sch.mod["main"])
+
+
+def test_reverse_compute_at_to_index():
+    @T.prim_func
+    def main(A: T.Buffer((128, 128), "float32"), D: T.Buffer((128, 128), "float32")) -> None:
+        B = T.alloc_buffer([128, 128], dtype="float32")
+        C = T.alloc_buffer([128, 128], dtype="float32")
+        for i_0, j_0, i_1 in T.grid(8, 8, 16):
+            for j_1 in T.serial(16):
+                with T.block("B"):
+                    vi = T.axis.spatial(128, i_0 * 16 + i_1)
+                    vj = T.axis.spatial(128, j_0 * 16 + j_1)
+                    T.reads(A[vi, vj])
+                    T.writes(B[vi, vj])
+                    B[vi, vj] = A[vi, vj] * T.float32(2)
+            for ax0 in T.serial(16):
+                with T.block("C"):
+                    vi = T.axis.spatial(128, i_0 * 16 + i_1)
+                    vj = T.axis.spatial(128, j_0 * 16 + ax0)
+                    T.reads(B[vi, vj])
+                    T.writes(C[vi, vj])
+                    C[vi, vj] = B[vi, vj] + T.float32(1)
+        for i, j in T.grid(128, 128):
+            with T.block("D"):
+                vi, vj = T.axis.remap("SS", [i, j])
+                T.reads(B[vi, vj])
+                T.writes(D[vi, vj])
+                D[vi, vj] = B[vi, vj] + T.float32(1)
+
+    @T.prim_func
+    def main_reverse_compute_at(
+        A: T.Buffer((128, 128), "float32"), D: T.Buffer((128, 128), "float32")
+    ) -> None:
+        B = T.alloc_buffer([128, 128], dtype="float32")
+        C = T.alloc_buffer([128, 128], dtype="float32")
+        for i_0, j_0, i_1 in T.grid(8, 8, 16):
+            for j_1 in T.serial(16):
+                with T.block("B"):
+                    vi = T.axis.spatial(128, i_0 * 16 + i_1)
+                    vj = T.axis.spatial(128, j_0 * 16 + j_1)
+                    T.reads(A[vi, vj])
+                    T.writes(B[vi, vj])
+                    B[vi, vj] = A[vi, vj] * T.float32(2)
+            for ax0 in T.serial(16):
+                with T.block("D"):
+                    vi = T.axis.spatial(128, i_0 * 16 + i_1)
+                    vj = T.axis.spatial(128, j_0 * 16 + ax0)
+                    T.reads(B[vi, vj])
+                    T.writes(D[vi, vj])
+                    D[vi, vj] = B[vi, vj] + T.float32(1)
+            for ax0 in T.serial(16):
+                with T.block("C"):
+                    vi = T.axis.spatial(128, i_0 * 16 + i_1)
+                    vj = T.axis.spatial(128, j_0 * 16 + ax0)
+                    T.reads(B[vi, vj])
+                    T.writes(C[vi, vj])
+                    C[vi, vj] = B[vi, vj] + T.float32(1)
+
+    sch = tir.Schedule(main, debug_mask="all")
+    block_c = sch.get_block("D")
+    axis = sch.get_loops("B")[2]
+    sch.reverse_compute_at(block_c, axis, index=1)
+    tvm.ir.assert_structural_equal(main_reverse_compute_at, sch.mod["main"])
+
+
+def test_reverse_compute_at_with_unit_loop():
+    @T.prim_func
+    def main(A: T.Buffer((128, 128), "float32"), D: T.Buffer((1, 2, 1), "float32")) -> None:
+        B = T.alloc_buffer([128, 128], dtype="float32")
+        for i_0, j_0, i_1 in T.grid(T.int64(8), T.int64(8), T.int64(16)):
+            for j_1 in T.serial(T.int64(16)):
+                with T.block("B"):
+                    vi = T.axis.spatial(T.int64(128), i_0 * T.int64(16) + i_1)
+                    vj = T.axis.spatial(T.int64(128), j_0 * T.int64(16) + j_1)
+                    T.reads(A[vi, vj])
+                    T.writes(B[vi, vj])
+                    B[vi, vj] = A[vi, vj] * T.float32(2)
+        for ax0, ax1, ax2 in T.grid(T.int64(1), T.int64(2), T.int64(1)):
+            with T.block("D"):
+                v0, v1, v2 = T.axis.remap("SSS", [ax0, ax1, ax2])
+                T.reads(B[v0, v1])
+                T.writes(D[v0, v1, v2])
+                D[v0, v1, v2] = B[v0, v1] + T.float32(1)
+
+    @T.prim_func
+    def main_reverse_compute_at(
+        A: T.Buffer((128, 128), "float32"), D: T.Buffer((1, 2, 1), "float32")
+    ):
+        B = T.alloc_buffer([128, 128], dtype="float32")
+        for i_0, j_0, i_1 in T.grid(T.int64(8), T.int64(8), T.int64(16)):
+            for j_1 in T.serial(T.int64(16)):
+                with T.block("B"):
+                    vi = T.axis.spatial(T.int64(128), i_0 * T.int64(16) + i_1)
+                    vj = T.axis.spatial(T.int64(128), j_0 * T.int64(16) + j_1)
+                    T.reads(A[vi, vj])
+                    T.writes(B[vi, vj])
+                    B[vi, vj] = A[vi, vj] * T.float32(2)
+            for ax0, ax1, ax2 in T.grid(T.int64(1), T.int64(16), T.int64(1)):
+                with T.block("D"):
+                    T.where(
+                        i_0 * T.int64(16) + i_1 < T.int64(1)
+                        and j_0 * T.int64(16) + ax1 < T.int64(2)
+                    )
+                    v0 = T.axis.spatial(T.int64(1), i_0 * T.int64(16) + i_1 + ax0)
+                    v1 = T.axis.spatial(T.int64(2), j_0 * T.int64(16) + ax1)
+                    v2 = T.axis.spatial(T.int64(1), ax2)
+                    T.reads(B[v0, v1])
+                    T.writes(D[v0, v1, v2])
+                    D[v0, v1, v2] = B[v0, v1] + T.float32(1)
+
+    sch = tir.Schedule(main, debug_mask="all")
+    block_d = sch.get_block("D")
+    axis = sch.get_loops("B")[2]
+    sch.reverse_compute_at(block_d, axis, preserve_unit_loops=True, index=1)
+    tvm.ir.assert_structural_equal(main_reverse_compute_at, sch.mod["main"])
+
+
+def test_reverse_compute_at_layout_trans():
+    @T.prim_func
+    def before(A: T.Buffer((1, 3, 5, 5, 16), "float32"), C: T.Buffer((1, 6, 5, 5, 8), "float32")):
+        B = T.alloc_buffer((1, 3, 5, 5, 16))
+        for i0, i1, i2, i3, i4 in T.grid(1, 3, 5, 5, 16):
+            with T.block("compute"):
+                v_i0, v_i1, v_i2, v_i3, v_i4 = T.axis.remap("SSSSS", [i0, i1, i2, i3, i4])
+                B[v_i0, v_i1, v_i2, v_i3, v_i4] = A[v_i0, v_i1, v_i2, v_i3, v_i4] + T.float32(1)
+        for ax0, ax1, ax2, ax3, ax4 in T.grid(1, 6, 5, 5, 8):
+            with T.block("T_layout_trans"):
+                v_ax0, v_ax1, v_ax2, v_ax3, v_ax4 = T.axis.remap("SSSSS", [ax0, ax1, ax2, ax3, ax4])
+                C[v_ax0, v_ax1, v_ax2, v_ax3, v_ax4] = B[
+                    v_ax0, (v_ax1 * 8 + v_ax4) // 16, v_ax2, v_ax3, (v_ax1 * 8 + v_ax4) % 16
+                ]
+
+    @T.prim_func
+    def after(A: T.Buffer((1, 3, 5, 5, 16), "float32"), C: T.Buffer((1, 6, 5, 5, 8), "float32")):
+        B = T.alloc_buffer((1, 3, 5, 5, 16))
+        for i0, i1 in T.grid(1, 3):
+            for i2, i3, i4 in T.grid(5, 5, 16):
+                with T.block("compute"):
+                    v_i0, v_i1, v_i2, v_i3, v_i4 = T.axis.remap("SSSSS", [i0, i1, i2, i3, i4])
+                    B[v_i0, v_i1, v_i2, v_i3, v_i4] = A[v_i0, v_i1, v_i2, v_i3, v_i4] + T.float32(1)
+            for ax0, ax1, ax2, ax3 in T.grid(2, 5, 5, 8):
+                with T.block("T_layout_trans"):
+                    v_ax0 = T.axis.spatial(1, 0)
+                    v_ax1 = T.axis.spatial(6, i1 * 2 + ax0)
+                    v_ax2, v_ax3, v_ax4 = T.axis.remap("SSS", [ax1, ax2, ax3])
+                    C[v_ax0, v_ax1, v_ax2, v_ax3, v_ax4] = B[
+                        v_ax0, (v_ax1 * 8 + v_ax4) // 16, v_ax2, v_ax3, (v_ax1 * 8 + v_ax4) % 16
+                    ]
+
+    sch = tir.Schedule(before, debug_mask="all")
+    trans = sch.get_block("T_layout_trans")
+    axis = sch.get_loops("compute")[1]
+    sch.reverse_compute_at(trans, axis)
+    tvm.ir.assert_structural_equal(after, sch.mod["main"])
+    verify_trace_roundtrip(sch=sch, mod=before)
 
 
 if __name__ == "__main__":

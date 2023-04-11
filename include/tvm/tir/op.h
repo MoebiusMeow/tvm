@@ -40,6 +40,9 @@
 
 namespace tvm {
 
+#define TVM_TIR_REGISTER_OP(OpName) \
+  TVM_REGISTER_OP("tir." OpName).set_attr<TScriptPrinterName>("TScriptPrinterName", OpName)
+
 // Most common operators can be overloaded by argument type(PrimExpr).
 // So we put them under the root namespace.
 //
@@ -537,7 +540,7 @@ TVM_DLL PrimExpr isfinite(PrimExpr x, Span span = Span());
 TVM_DLL PrimExpr isinf(PrimExpr x, Span span = Span());
 
 /*!
- * \brief sum of of source expression over axis
+ * \brief sum of source expression over axis
  * \param source The source expression.
  * \param axis List of iteration variables that will be used for reduction.
  * \param init The value with which to initialize the output.
@@ -548,7 +551,7 @@ TVM_DLL PrimExpr sum(PrimExpr source, Array<tir::IterVar> axis, Array<PrimExpr> 
                      Span span = Span());
 
 /*!
- * \brief logical And of of source expression over axis
+ * \brief logical And of source expression over axis
  * \param source The source expression.
  * \param axis List of iteration variables that will be used for reduction.
  * \param init The value with which to initialize the output.
@@ -558,7 +561,7 @@ TVM_DLL PrimExpr all(PrimExpr source, Array<tir::IterVar> axis, Array<PrimExpr> 
                      Span span = Span());
 
 /*!
- * \brief logical Or of of source expression over axis
+ * \brief logical Or of source expression over axis
  * \param source The source expression.
  * \param axis List of iteration variables that will be used for reduction.
  * \param init The value with which to initialize the output.
@@ -569,7 +572,7 @@ TVM_DLL PrimExpr any(PrimExpr source, Array<tir::IterVar> axis, Array<PrimExpr> 
                      Span span = Span());
 
 /*!
- * \brief max of of source expression over axis
+ * \brief max of source expression over axis
  * \param source The source expression.
  * \param axis List of iteration variables that will be used for reduction.
  * \param init The value with which to initialize the output.
@@ -580,7 +583,7 @@ TVM_DLL PrimExpr max(PrimExpr source, Array<tir::IterVar> axis, Array<PrimExpr> 
                      Span span = Span());
 
 /*!
- * \brief max of of source expression over axis
+ * \brief max of source expression over axis
  * \param source The source expression.
  * \param axis List of iteration variables that will be used for reduction.
  * \param init The value with which to initialize the output.
@@ -591,7 +594,7 @@ TVM_DLL PrimExpr min(PrimExpr source, Array<tir::IterVar> axis, Array<PrimExpr> 
                      Span span = Span());
 
 /*!
- * \brief product of of source expression over axis
+ * \brief product of source expression over axis
  * \param source The source expression.
  * \param axis List of iteration variables that will be used for reduction.
  * \param init The value with which to initialize the output.
@@ -675,6 +678,15 @@ TVM_DLL PrimExpr LargeUIntImm(DataType dtype, int64_t low, int64_t high, Span sp
 TVM_DLL PrimExpr q_multiply_shift(PrimExpr x, PrimExpr y, PrimExpr q, PrimExpr s,
                                   Span span = Span());
 
+/*!
+ * \brief Fast_erf_float expression from Eigen
+ *
+ * \param arg The input expression.
+ * \param bits The number of bits in the type.
+ * \return The constructed expression.
+ */
+TVM_DLL PrimExpr fast_erf_float_expr(PrimExpr arg, int bits);
+
 // Intrinsic operators
 #define TVM_DECLARE_INTRIN_UNARY(OpName)                                \
   inline PrimExpr OpName(PrimExpr x, Span span = Span()) {              \
@@ -701,6 +713,7 @@ TVM_DECLARE_INTRIN_UNARY(rsqrt);
 TVM_DECLARE_INTRIN_UNARY(log);
 TVM_DECLARE_INTRIN_UNARY(log2);
 TVM_DECLARE_INTRIN_UNARY(log10);
+TVM_DECLARE_INTRIN_UNARY(log1p);
 TVM_DECLARE_INTRIN_UNARY(popcount);
 TVM_DECLARE_INTRIN_UNARY(tan);
 TVM_DECLARE_INTRIN_UNARY(cos);
@@ -910,7 +923,9 @@ inline PrimExpr MakeConstScalar(DataType t, ValueType value, Span span = Span())
   if (t.is_uint()) {
     // Use IntImm if it is a small integer
     uint64_t uval = static_cast<uint64_t>(value);
-    if (uval <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    if (value < static_cast<ValueType>(0)) {
+      LOG(FATAL) << "cannot make uint from negative value " << value;
+    } else if (uval <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
       return IntImm(t, static_cast<int64_t>(value), span);
     } else {
       uint64_t mask = (static_cast<uint64_t>(1) << 32U) - 1U;
@@ -928,7 +943,11 @@ inline PrimExpr MakeConstScalar(DataType t, ValueType value, Span span = Span())
     return FloatImm(t, static_cast<double>(value), span);
   }
   LOG(FATAL) << "cannot make const for type " << t;
-  return PrimExpr();
+}
+
+template <>
+inline PrimExpr MakeConstScalar(DataType t, bool value, Span span) {
+  return MakeConstScalar(t, static_cast<int>(value), span);
 }
 
 template <typename ValueType, typename>

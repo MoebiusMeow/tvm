@@ -29,13 +29,14 @@
  * external functions, and they will use the provided compiler for codegen.
  */
 
-#include <tvm/ir/error.h>
 #include <tvm/ir/module.h>
 #include <tvm/relay/analysis.h>
 #include <tvm/relay/attrs/annotation.h>
+#include <tvm/relay/error.h>
 #include <tvm/relay/expr.h>
 #include <tvm/relay/expr_functor.h>
 #include <tvm/relay/transform.h>
+#include <tvm/runtime/name_transforms.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -333,14 +334,15 @@ class Partitioner : public MixedModeMutator {
         WithAttr(std::move(global_region_func), attr::kCompiler, tvm::runtime::String(target));
     global_region_func = WithAttr(std::move(global_region_func), attr::kInline, tvm::Integer(1));
 
-    std::string fname = name;
-    ICHECK(!module_->ContainGlobalVar(fname)) << "Global function " << fname << " already exists";
+    GlobalVarSupply global_var_supply = GlobalVarSupply(module_);
+    GlobalVar glob_func = global_var_supply->FreshGlobal(name, false);
+    ICHECK(!module_->ContainGlobalVar(glob_func->name_hint))
+        << "Global function " << glob_func->name_hint << " already exists";
     // Create a global function and add it to the IRModule for the region.
     // This way we lift the functions that should be handled by external
     // codegen to the module scope and rely on the pass manager to prevent
     // relay function level passes (i.e. simplify inference and fusion)
     // optimizing it.
-    GlobalVar glob_func(fname);
     module_->Add(glob_func, global_region_func);
     module_ = relay::transform::InferType()(module_);
 
@@ -506,7 +508,7 @@ class NameMangleExtFuncs : public MixedModeMutator {
       if (auto* fn = pair.second.as<FunctionNode>()) {
         auto func = GetRef<Function>(fn);
         if (func->GetAttr<String>(attr::kCompiler).defined()) {
-          auto fn_name_mangled = relay::backend::SanitizeName(mangle_fn_(pair.first->name_hint));
+          auto fn_name_mangled = tvm::runtime::SanitizeName(mangle_fn_(pair.first->name_hint));
           GlobalVar gvar = GlobalVar(fn_name_mangled);
           mangled_gvars_[pair.first->name_hint] = gvar;
         }
@@ -525,7 +527,7 @@ class NameMangleExtFuncs : public MixedModeMutator {
         if (func->GetAttr<String>(attr::kCompiler).defined()) {
           auto new_dict = func->attrs->dict;
           new_dict.Set(tvm::attr::kGlobalSymbol,
-                       String(relay::backend::SanitizeName(mangle_fn_(pair.first->name_hint))));
+                       String(tvm::runtime::SanitizeName(mangle_fn_(pair.first->name_hint))));
           func = WithFields(func, func->params, VisitExpr(func->body), func->ret_type,
                             func->type_params, DictAttrs(new_dict));
 

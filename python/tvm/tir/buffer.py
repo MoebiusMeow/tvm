@@ -16,16 +16,17 @@
 # under the License.
 """Abstraction for array data structures."""
 from numbers import Integral
-import tvm._ffi
 
+import tvm._ffi
 from tvm._ffi.base import string_types
-from tvm.runtime import Object, convert
-from tvm.ir import PrimExpr, PointerType, PrimType
+from tvm.ir import PointerType, PrimExpr, PrimType, Range
+from tvm.runtime import Object, Scriptable, convert
+
 from . import _ffi_api
 
 
 @tvm._ffi.register_object("tir.Buffer")
-class Buffer(Object):
+class Buffer(Object, Scriptable):
     """Symbolic data buffer in TVM.
 
     Buffer provide a way to represent data layout
@@ -175,6 +176,50 @@ class Buffer(Object):
             The offset indices of the element in the flattened buffer.
         """
         return _ffi_api.BufferOffsetOf(self, indices)  # type: ignore
+
+    def __getitem__(self, indices):
+        from ..arith import Analyzer  # pylint: disable=import-outside-toplevel
+        from .expr import (  # pylint: disable=import-outside-toplevel
+            BufferLoad,
+            Ramp,
+            const,
+        )
+        from .stmt import BufferRegion  # pylint: disable=import-outside-toplevel
+
+        if not isinstance(indices, (tuple, list)):
+            indices = [indices]
+        has_slice = any(isinstance(i, slice) for i in indices)
+        has_step = any(isinstance(i, slice) and i.step is not None for i in indices)
+        analyzer = Analyzer()
+        if has_slice and not has_step:
+            region = []
+            for i, index in enumerate(indices):
+                if isinstance(index, slice):
+                    start = 0 if index.start is None else index.start
+                    stop = self.shape[i] if index.stop is None else index.stop
+                    region.append(Range.from_min_extent(start, analyzer.simplify(stop - start)))
+                else:
+                    region.append(
+                        Range.from_min_extent(
+                            index, const(1, index.dtype) if isinstance(index, PrimExpr) else 1
+                        )
+                    )
+            return BufferRegion(self, region)
+        else:
+            expr_indices = []
+            for index in indices:
+                if isinstance(index, slice):
+                    start = 0 if index.start is None else index.start
+                    stop = self.shape[i] if index.stop is None else index.stop
+                    step = 1 if index.step is None else index.step
+                    lanes = analyzer.simplify((stop - start + step - 1) // step)
+                    if lanes == 1:
+                        expr_indices.append(start)
+                    else:
+                        expr_indices.append(Ramp(start, step, int(lanes)))
+                else:
+                    expr_indices.append(index)
+            return BufferLoad(self, expr_indices)
 
 
 def decl_buffer(

@@ -79,7 +79,6 @@ def quantize(expr, type_map):
             out_dtype=expr.attrs.out_dtype,
             axis=t.axis,
         )
-
     return [
         out,
         TensorAffineType(expr.args[1], expr.args[2], expr.attrs.out_dtype, expr.attrs.axis),
@@ -109,29 +108,31 @@ register_unary_identity("min")
 register_unary_identity("image.resize2d")
 
 
-@register_fake_quantization_to_integer("abs")
-def abs_(expr, type_map):
-    """Rewrite an abs op"""
-    assert len(expr.args) == 1
-    arg = expr.args[0]
-    t = type_map[arg]
-
-    min_value = relay.const(np.iinfo(t.dtype).min, t.dtype)
-    one = relay.const(1, t.dtype)
-    out = relay.op.where(relay.op.equal(min_value, arg), arg + one, arg)
-    out = relay.op.abs(out)
-    return [out, t]
-
-
 @register_fake_quantization_to_integer("nn.adaptive_avg_pool1d")
 def adaptive_avgpool1d(expr, type_map):
     """Rewrite an adaptive avgpool op"""
     arg = expr.args[0]
     t = type_map[arg]
-    arg = relay.op.cast(arg, "int32")
-    out = relay.op.nn.adaptive_avg_pool1d(arg)
-    out = relay.op.cast(out, t.dtype)
-    return [out, t]
+    out_t = type_map[expr]
+    if not (
+        approx_equal(t.scale, out_t.scale)
+        and approx_equal(t.zero_point, out_t.zero_point)
+        and tvm.ir.structural_equal(t.dtype, out_t.dtype)
+    ):
+        arg = relay.qnn.op.requantize(
+            arg,
+            t.scale,
+            t.zero_point,
+            out_t.scale,
+            out_t.zero_point,
+            out_dtype="int32",
+            axis=t.axis,
+        )
+    else:
+        arg = relay.op.cast(arg, "int32")
+    output_size = expr.attrs.output_size
+    out = relay.op.nn.adaptive_avg_pool1d(arg, output_size)
+    return [out, TensorAffineType(out_t.scale, out_t.zero_point, "int32", out_t.axis)]
 
 
 @register_fake_quantization_to_integer("nn.avg_pool2d")
@@ -139,10 +140,30 @@ def avgpool2d(expr, type_map):
     """Rewrite a avgpool op"""
     arg = expr.args[0]
     t = type_map[arg]
-    arg = relay.op.cast(arg, "int32")
+    out_t = type_map[expr]
+    # Cast (or requantize) to int32.
+    if not (
+        approx_equal(t.scale, out_t.scale)
+        and approx_equal(t.zero_point, out_t.zero_point)
+        and tvm.ir.structural_equal(t.dtype, out_t.dtype)
+    ):
+        arg = relay.qnn.op.requantize(
+            arg,
+            t.scale,
+            t.zero_point,
+            out_t.scale,
+            out_t.zero_point,
+            out_dtype="int32",
+            axis=t.axis,
+        )
+    else:
+        arg = relay.op.cast(arg, "int32")
     out = relay.op.nn.avg_pool2d(arg, **expr.attrs)
-    out = relay.op.cast(out, t.dtype)
-    return [out, t]
+    if out_t.dtype != "int32":
+        # Cast back to output dtype to preserve input dtype == output dtype for AvgPool2d.
+        out = relay.op.clip(out, a_min=np.iinfo(out_t.dtype).min, a_max=np.iinfo(out_t.dtype).max)
+        out = relay.op.cast(out, out_t.dtype)
+    return [out, TensorAffineType(out_t.scale, out_t.zero_point, out_t.dtype, out_t.axis)]
 
 
 @register_fake_quantization_to_integer("nn.global_avg_pool2d")
@@ -150,10 +171,26 @@ def global_avgpool2d(expr, type_map):
     """Rewrite a global_avgpool op"""
     arg = expr.args[0]
     t = type_map[arg]
-    arg = relay.op.cast(arg, "int32")
+    out_t = type_map[expr]
+    out_t = type_map[expr]
+    if not (
+        approx_equal(t.scale, out_t.scale)
+        and approx_equal(t.zero_point, out_t.zero_point)
+        and tvm.ir.structural_equal(t.dtype, out_t.dtype)
+    ):
+        arg = relay.qnn.op.requantize(
+            arg,
+            t.scale,
+            t.zero_point,
+            out_t.scale,
+            out_t.zero_point,
+            out_dtype="int32",
+            axis=t.axis,
+        )
+    else:
+        arg = relay.op.cast(arg, "int32")
     out = relay.op.nn.global_avg_pool2d(arg)
-    out = relay.op.cast(out, t.dtype)
-    return [out, t]
+    return [out, TensorAffineType(out_t.scale, out_t.zero_point, "int32", out_t.axis)]
 
 
 @register_fake_quantization_to_integer("broadcast_to")
@@ -171,23 +208,30 @@ def bias_add(expr, type_map):
     """Rewrite a bias_add op"""
     x, b = expr.args
     x_t = type_map[x]
-    b_t = type_map[b]
-    in_scale = fold_constant(x_t.scale)
-    in_zero_point = fold_constant(x_t.zero_point)
-    if not (
-        approx_equal(x_t.scale, b_t.scale)
-        and approx_equal(x_t.zero_point, b_t.zero_point)
-        and tvm.ir.structural_equal(x_t.dtype, b_t.dtype)
-    ):
-        b = relay.qnn.op.requantize(
-            b,
-            b_t.scale,
-            b_t.zero_point,
-            in_scale,
-            in_zero_point,
-            out_dtype=x_t.dtype,
-            axis=0,
-        )
+    if b in type_map:
+        # Ensure bias matches the previous op
+        b_t = type_map[b]
+        in_scale = fold_constant(x_t.scale)
+        in_zero_point = fold_constant(x_t.zero_point)
+        if not (
+            approx_equal(x_t.scale, b_t.scale)
+            and approx_equal(x_t.zero_point, b_t.zero_point)
+            and tvm.ir.structural_equal(x_t.dtype, b_t.dtype)
+        ):
+            b = relay.qnn.op.requantize(
+                b,
+                b_t.scale,
+                b_t.zero_point,
+                in_scale,
+                in_zero_point,
+                out_dtype=x_t.dtype,
+                axis=0,
+            )
+    else:
+        # If the bias is a constant, we need to quantize it
+        assert isinstance(b, relay.expr.Constant)
+        assert b.checked_type.dtype in ["float32", "float64", "float16", "bfloat16"]
+        b = relay.qnn.op.quantize(b, x_t.scale, x_t.zero_point, axis=0, out_dtype=x_t.dtype)
     out = relay.op.nn.bias_add(x, b, **expr.attrs)
     return [out, x_t]
 
@@ -379,11 +423,11 @@ def pad(expr, type_map):
     arg = expr.args[0]
     t = type_map[arg]
     pad_value = expr.args[1]
-    ## TF2ONNX will sometimes implement the pad_value as a constant without a quantize
-    ## To support that, the pass lets branches that terminate in a constant through
+    # TF2ONNX will sometimes implement the pad_value as a constant without a quantize
+    # To support that, the pass lets branches that terminate in a constant through
     if pad_value in type_map:
-        ## if the pad value is calcuated from a dequantize op, it should be in the type map
-        ## and we need to make sure it's affine type matches the arg
+        # if the pad value is calcuated from a dequantize op, it should be in the type map
+        # and we need to make sure it's affine type matches the arg
         pad_t = type_map[pad_value]
         if not tvm.ir.structural_equal(t, pad_t):
             pad_value = relay.qnn.op.requantize(
@@ -396,8 +440,9 @@ def pad(expr, type_map):
                 axis=pad_t.axis,
             )
     else:
-        ## If the pad-value is a constant, we need to quantize it
+        # If the pad-value is a constant, we need to quantize it
         assert isinstance(pad_value, relay.expr.Constant)
+        assert pad_value.checked_type.dtype in ["float32", "float64", "float16", "bfloat16"]
         pad_value = relay.qnn.op.quantize(pad_value, t.scale, t.zero_point)
 
     out = relay.op.nn.pad(arg, pad_value=pad_value, **expr.attrs)
@@ -418,7 +463,7 @@ def mean(expr, type_map):
 
 def get_binary_types(expr, type_map):
     """Get Affine types of a binary op's inputs and unify them"""
-    ##Support the case where one input is quantized and the other is a constant float
+    # Support the case where one input is quantized and the other is a constant float
     left = expr.args[0]
     right = expr.args[1]
     left_t = None
@@ -438,14 +483,12 @@ def get_binary_types(expr, type_map):
             left, right_t.scale, right_t.zero_point, out_dtype=right_t.dtype
         )
         left_t = right_t
-        out_t = right_t
     if right_t is None:
         assert isinstance(right, relay.expr.Constant)
         right = relay.qnn.op.quantize(
             right, left_t.scale, left_t.zero_point, out_dtype=left_t.dtype
         )
         right_t = left_t
-        out_t = left_t
 
     # Handle the case of mismatched inputs
     if not left_t.dtype == out_t.dtype:
@@ -459,6 +502,37 @@ def register_binary_qnn(op_name, op):
 
     def binary(expr, type_map):
         left, right, left_t, right_t, out_t = get_binary_types(expr, type_map)
+
+        if (
+            op_name == "add"
+            and approx_equal(left_t.scale, right_t.scale)
+            and approx_equal(left_t.zero_point, right_t.zero_point)
+            and tvm.ir.structural_equal(left_t.dtype, right_t.dtype)
+            and left_t.dtype == "int32"
+            and approx_equal(left_t.scale, out_t.scale)
+            and approx_equal(left_t.zero_point, out_t.zero_point)
+            and np.all(out_t.zero_point.data.numpy() == 0)
+        ):
+            # If this add op comes after conv2d or dense, out_t.scale and out_t.zero_point
+            # can be a vector, which is not supported by QNN binary operators.
+            # In particular, the pattern of an `add` op following `dense`, where the addition is
+            # really a bias addtion, can come up often. We identify that pattern and convert it to
+            # `qnn.dense` -> `add`.
+            # To avoid overflow, we do this conversion only when the input data type is 32 bit (bias
+            # addition is typically done in 32 bit).
+            return [left + right, left_t]
+
+        assert (
+            len(out_t.scale.data.shape) == 0
+        ), "The output scale needs to be a scalar, but got a tensor of shape {}".format(
+            out_t.scale.data.shape
+        )
+        assert (
+            len(out_t.zero_point.data.shape) == 0
+        ), "The output zero point needs to be a scalar, but got a tensor of shape {}".format(
+            out_t.zero_point.data.shape
+        )
+
         out = op(
             left,
             right,
@@ -546,4 +620,16 @@ register_unary_qnn("erf", relay.qnn.op.erf)
 register_unary_qnn("sigmoid", relay.qnn.op.sigmoid)
 register_unary_qnn("hardswish", relay.qnn.op.hardswish)
 register_unary_qnn("tanh", relay.qnn.op.tanh)
+register_unary_qnn("abs", relay.qnn.op.abs)
 register_unary_qnn("log", relay.qnn.op.log)
+
+
+@register_fake_quantization_to_integer("take")
+def take(expr, type_map):
+    """Rewrite a take op"""
+    arg = expr.args[0]
+    indices = expr.args[1]
+    t = type_map[arg]
+
+    out = relay.op.take(arg, indices, **expr.attrs)
+    return [out, t]
